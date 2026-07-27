@@ -1,12 +1,18 @@
 import logging
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+from server.auth import CurrentCustomerId, normalize_address
 from server.db import pool, DB_SCHEMA
 from server.schema_detector import table_exists, column_exists, invalidate_cache
-from server.routes.cart import _carts, DEMO_CUSTOMER_ID
+from server.routes.cart import _carts
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/orders")
+
+
+class CheckoutRequest(BaseModel):
+    address: str | None = Field(default=None, max_length=1000)
 
 
 def _guard_orders():
@@ -19,8 +25,8 @@ def _guard_orders():
 
 
 @router.get("")
-def get_orders():
-    """Get order history for the demo customer."""
+def get_orders(customer_id: CurrentCustomerId):
+    """Get order history for the signed-in customer."""
     _guard_orders()
 
     has_priority = column_exists("orders", "priority")
@@ -40,7 +46,7 @@ def get_orders():
                     WHERE o.customer_id = %s
                     ORDER BY o.order_date DESC
                     """,
-                    (DEMO_CUSTOMER_ID,),
+                    (customer_id,),
                 )
                 rows = cur.fetchall()
                 cols = [d.name for d in cur.description]
@@ -49,19 +55,23 @@ def get_orders():
     except Exception as e:
         if "does not exist" in str(e):
             invalidate_cache()
-            raise HTTPException(status_code=503, detail="Orders service temporarily unavailable.")
+            raise HTTPException(
+                status_code=503, detail="Orders service temporarily unavailable."
+            )
         raise
 
 
 @router.get("/{order_id}")
-def get_order_detail(order_id: int):
+def get_order_detail(order_id: int, customer_id: CurrentCustomerId):
     """Get order detail including line items."""
     _guard_orders()
 
     try:
         with pool.connection() as conn:
             with conn.cursor() as cur:
-                priority_select = ", o.priority" if column_exists("orders", "priority") else ""
+                priority_select = (
+                    ", o.priority" if column_exists("orders", "priority") else ""
+                )
 
                 cur.execute(
                     f"""
@@ -72,7 +82,7 @@ def get_order_detail(order_id: int):
                     JOIN {DB_SCHEMA}.customers c ON c.id = o.customer_id
                     WHERE o.id = %s AND o.customer_id = %s
                     """,
-                    (order_id, DEMO_CUSTOMER_ID),
+                    (order_id, customer_id),
                 )
                 row = cur.fetchone()
                 if not row:
@@ -103,12 +113,14 @@ def get_order_detail(order_id: int):
     except Exception as e:
         if "does not exist" in str(e):
             invalidate_cache()
-            raise HTTPException(status_code=503, detail="Orders service temporarily unavailable.")
+            raise HTTPException(
+                status_code=503, detail="Orders service temporarily unavailable."
+            )
         raise
 
 
 @router.post("/checkout")
-def checkout():
+def checkout(customer_id: CurrentCustomerId, payload: CheckoutRequest | None = None):
     """Place an order from the current cart contents."""
     _guard_orders()
 
@@ -118,7 +130,7 @@ def checkout():
             detail="Checkout is temporarily unavailable. The order items table is missing.",
         )
 
-    cart = _carts.get(DEMO_CUSTOMER_ID, {})
+    cart = _carts.get(customer_id, {})
     if not cart:
         raise HTTPException(status_code=400, detail="Cart is empty")
 
@@ -128,6 +140,12 @@ def checkout():
     try:
         with pool.connection() as conn:
             with conn.cursor() as cur:
+                if payload is not None:
+                    cur.execute(
+                        f"UPDATE {DB_SCHEMA}.customers SET address = %s WHERE id = %s",
+                        (normalize_address(payload.address), customer_id),
+                    )
+
                 placeholders = ",".join(["%s"] * len(product_ids))
                 cur.execute(
                     f"""
@@ -138,12 +156,17 @@ def checkout():
                     """,
                     product_ids,
                 )
-                products = {r[0]: {"name": r[1], "price": r[2], "stock": r[3]} for r in cur.fetchall()}
+                products = {
+                    r[0]: {"name": r[1], "price": r[2], "stock": r[3]}
+                    for r in cur.fetchall()
+                }
 
                 for pid, qty in cart.items():
                     p = products.get(pid)
                     if not p:
-                        raise HTTPException(status_code=400, detail=f"Product {pid} not found")
+                        raise HTTPException(
+                            status_code=400, detail=f"Product {pid} not found"
+                        )
                     if p["stock"] < qty:
                         raise HTTPException(
                             status_code=400,
@@ -162,7 +185,7 @@ def checkout():
                         VALUES (%s, %s, %s, %s, 'USD', 'pending')
                         RETURNING id
                         """,
-                        (DEMO_CUSTOMER_ID, pid, qty, round(total, 2)),
+                        (customer_id, pid, qty, round(total, 2)),
                     )
                     order_id = cur.fetchone()[0]
                     order_ids.append(order_id)
@@ -195,7 +218,7 @@ def checkout():
                         SET loyalty_points = loyalty_points + %s
                         WHERE id = %s
                         """,
-                        (total_points_earned, DEMO_CUSTOMER_ID),
+                        (total_points_earned, customer_id),
                     )
 
             conn.commit()
@@ -204,10 +227,12 @@ def checkout():
     except Exception as e:
         if "does not exist" in str(e):
             invalidate_cache()
-            raise HTTPException(status_code=503, detail="Checkout is temporarily unavailable.")
+            raise HTTPException(
+                status_code=503, detail="Checkout is temporarily unavailable."
+            )
         raise
 
-    _carts[DEMO_CUSTOMER_ID] = {}
+    _carts[customer_id] = {}
 
     result = {"message": "Order placed successfully!", "order_ids": order_ids}
     if loyalty_active:
