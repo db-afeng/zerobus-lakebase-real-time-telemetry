@@ -110,13 +110,12 @@ if ! databricks postgres --help >/dev/null 2>&1; then
     exit 1
 fi
 
-PROFILE_ARGS=()
-if [[ -n "$LAKEBASE_PROFILE" && "$LAKEBASE_PROFILE" != "DEFAULT" ]]; then
-    PROFILE_ARGS=(--profile "$LAKEBASE_PROFILE")
-fi
-
 databricks_cli() {
-    databricks "$@" "${PROFILE_ARGS[@]}"
+    if [[ -n "$LAKEBASE_PROFILE" && "$LAKEBASE_PROFILE" != "DEFAULT" ]]; then
+        databricks "$@" --profile "$LAKEBASE_PROFILE"
+    else
+        databricks "$@"
+    fi
 }
 
 GIT_USER_RAW="$(git -C "$REPO_ROOT" config user.name || true)"
