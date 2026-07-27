@@ -1,5 +1,6 @@
 .databricks/
 .env
+.env.lakebase
 .git/
 .ruff_cache/
 .venv/

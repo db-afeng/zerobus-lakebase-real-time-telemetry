@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+# Git passes 1 for branch checkouts and 0 for individual file checkouts.
+[[ "${3:-0}" == "1" ]] || exit 0
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+BRANCH_MANAGER="$REPO_ROOT/datacart-storefront/scripts/lakebase-branch.sh"
+[[ -x "$BRANCH_MANAGER" ]] || exit 0
+
+echo "post-checkout: preparing this branch's Lakebase development database"
+if ! "$BRANCH_MANAGER"; then
+    echo "post-checkout: Lakebase provisioning failed; run 'make dev-lakebase' from datacart-storefront to retry." >&2
+fi
+
+# Post-checkout automation must never turn a successful checkout into a failure.
+exit 0

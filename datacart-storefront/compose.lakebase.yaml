@@ -1,0 +1,17 @@
+services:
+  postgres:
+    profiles: ["local"]
+
+  backend:
+    environment:
+      PGHOST: ${PGHOST:?Run make dev-lakebase to generate .env.lakebase}
+      PGPORT: ${PGPORT:-5432}
+      PGUSER: ${PGUSER:?Run make dev-lakebase to generate .env.lakebase}
+      PGPASSWORD: ${PGPASSWORD:?Run make dev-lakebase to generate .env.lakebase}
+      PGDATABASE: ${PGDATABASE:-databricks_postgres}
+      PGSSLMODE: require
+      ENDPOINT_NAME: ${ENDPOINT_NAME:?Run make dev-lakebase to generate .env.lakebase}
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
