@@ -59,44 +59,27 @@ def features():
 @app.get("/api/dbtest")
 def dbtest():
     """Debug endpoint to test DB connectivity."""
-    from server.db import w, DB_SCHEMA
-    import psycopg
+    from server.db import pool, DB_SCHEMA
+
     info = {
         "PGHOST": os.environ.get("PGHOST", "NOT SET"),
         "PGUSER": os.environ.get("PGUSER", "NOT SET"),
         "PGDATABASE": os.environ.get("PGDATABASE", "NOT SET"),
         "ENDPOINT_NAME": os.environ.get("ENDPOINT_NAME", "NOT SET"),
         "IS_APP": bool(os.environ.get("DATABRICKS_APP_NAME")),
+        "AUTH_MODE": "password" if "PGPASSWORD" in os.environ else "lakebase_oauth",
     }
-    try:
-        endpoint_name = os.environ["ENDPOINT_NAME"]
-        cred = w.postgres.generate_database_credential(endpoint=endpoint_name)
-        info["credential_generated"] = True
-        info["credential_expires"] = str(cred.expire_time)
-    except Exception as e:
-        info["credential_generated"] = False
-        info["credential_error"] = str(e)
-        return info
 
     try:
-        conn = psycopg.connect(
-            dbname=os.environ.get("PGDATABASE", "databricks_postgres"),
-            user=os.environ.get("PGUSER", ""),
-            password=cred.token,
-            host=os.environ.get("PGHOST", ""),
-            port=int(os.environ.get("PGPORT", "5432")),
-            sslmode=os.environ.get("PGSSLMODE", "require"),
-            connect_timeout=10,
-        )
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1")
-            info["db_connected"] = True
-            try:
-                cur.execute(f"SELECT count(*) FROM {DB_SCHEMA}.products")
-                info["product_count"] = cur.fetchone()[0]
-            except Exception as e:
-                info["schema_error"] = str(e)
-        conn.close()
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                info["db_connected"] = True
+                try:
+                    cur.execute(f"SELECT count(*) FROM {DB_SCHEMA}.products")
+                    info["product_count"] = cur.fetchone()[0]
+                except Exception as e:
+                    info["schema_error"] = str(e)
     except Exception as e:
         info["db_connected"] = False
         info["db_error"] = str(e)

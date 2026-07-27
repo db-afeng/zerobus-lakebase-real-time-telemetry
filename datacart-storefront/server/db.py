@@ -7,8 +7,10 @@ from server.config import get_workspace_client
 logger = logging.getLogger(__name__)
 
 DB_SCHEMA = os.environ.get("DB_SCHEMA", "ecommerce")
+password = os.environ.get("PGPASSWORD")
 
-w = get_workspace_client()
+ENDPOINT_NAME = os.environ.get("ENDPOINT_NAME")
+w = None if password is not None else get_workspace_client()
 
 # Connection details come entirely from the environment. When the app is bound
 # to its Lakebase project as a resource (see resources/datacart_storefront.app.yml),
@@ -16,9 +18,10 @@ w = get_workspace_client()
 # and auto-creates the service principal's Postgres login role. ENDPOINT_NAME is
 # supplied via the app's config env (the binding does not inject it) and is used
 # to mint short-lived OAuth DB tokens — Lakebase credentials expire hourly, so
-# there is no static password to inject.
-ENDPOINT_NAME = os.environ["ENDPOINT_NAME"]
-LAKEBASE_PROJECT = ENDPOINT_NAME.split("/")[1]  # projects/<id>/branches/.../endpoints/...
+# there is no static password to inject. Local Postgres uses PGPASSWORD instead.
+if password is None and not ENDPOINT_NAME:
+    raise RuntimeError("ENDPOINT_NAME is required when PGPASSWORD is not set")
+LAKEBASE_PROJECT = ENDPOINT_NAME.split("/")[1] if ENDPOINT_NAME else None
 
 username = os.environ["PGUSER"]
 host = os.environ["PGHOST"]
@@ -28,7 +31,7 @@ sslmode = os.environ.get("PGSSLMODE", "require")
 
 
 class OAuthConnection(psycopg.Connection):
-    """psycopg connection that mints a fresh OAuth DB token as its password.
+    """psycopg connection using a local password or a fresh Lakebase OAuth token.
 
     Lakebase DB credentials are short-lived (they expire ~hourly), so the token
     is generated per new connection rather than injected once at deploy time.
@@ -36,8 +39,13 @@ class OAuthConnection(psycopg.Connection):
 
     @classmethod
     def connect(cls, conninfo="", **kwargs):
+        if password is not None:
+            kwargs["password"] = password
+            return super().connect(conninfo, **kwargs)
+
         logger.info(f"Generating DB credential for endpoint: {ENDPOINT_NAME}")
         try:
+            assert w is not None
             credential = w.postgres.generate_database_credential(endpoint=ENDPOINT_NAME)
             logger.info(f"Credential generated, expires: {credential.expire_time}")
             kwargs["password"] = credential.token
@@ -65,6 +73,8 @@ pool = ConnectionPool(
 
 def get_branch_connection(branch_id: str) -> psycopg.Connection:
     """Get a direct connection to a specific branch endpoint (used by bonus labs)."""
+    if w is None or LAKEBASE_PROJECT is None:
+        raise RuntimeError("Branch connections require Lakebase OAuth authentication")
     branch_full = f"projects/{LAKEBASE_PROJECT}/branches/{branch_id}"
     endpoints = list(w.postgres.list_endpoints(parent=branch_full))
     if not endpoints:

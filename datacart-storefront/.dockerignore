@@ -1,0 +1,9 @@
+.databricks/
+.env
+.git/
+.ruff_cache/
+.venv/
+__pycache__/
+*.py[cod]
+frontend/node_modules/
+npm-debug.log*
