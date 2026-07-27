@@ -11,6 +11,9 @@ import {
   Dumbbell,
   Lamp,
   LoaderCircle,
+  LogIn,
+  LogOut,
+  MapPin,
   Minus,
   Monitor,
   Package,
@@ -25,6 +28,7 @@ import {
   Trash2,
   TriangleAlert,
   Truck,
+  User,
   X,
   Zap,
   type LucideIcon,
@@ -65,6 +69,7 @@ interface Account {
   id: number
   name: string
   email: string
+  address: string | null
   loyalty_tier?: string
   loyalty_points?: number
   email_verified?: boolean
@@ -188,6 +193,15 @@ function formatDate(value?: string) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
+}
+
+function apiError(
+  detail: string | Array<{ msg?: string }> | undefined,
+  fallback: string,
+) {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg
+  return fallback
 }
 
 function CategoryIcon({ category, size = 32 }: { category: string; size?: number }) {
@@ -330,6 +344,157 @@ function Toast({ message, onClose }: { message: string; onClose: () => void }) {
         <X size={14} />
       </button>
     </div>
+  )
+}
+
+function AuthPage({ onAuthenticated }: { onAuthenticated: (account: Account) => void }) {
+  const [mode, setMode] = useState<'login' | 'signup'>('login')
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [address, setAddress] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  const changeMode = (nextMode: 'login' | 'signup') => {
+    setMode(nextMode)
+    setError('')
+  }
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSubmitting(true)
+    setError('')
+    try {
+      const response = await fetch(`/api/account/${mode}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          mode === 'signup'
+            ? { name, email, address: address || null }
+            : { email },
+        ),
+      })
+      const result = (await response.json()) as Account & {
+        detail?: string | Array<{ msg?: string }>
+      }
+      if (!response.ok) {
+        throw new Error(
+          apiError(
+            result.detail,
+            mode === 'login' ? 'Unable to log in' : 'Unable to create account',
+          ),
+        )
+      }
+      onAuthenticated(result)
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <main className="auth-shell">
+      <div className="auth-brand">
+        <div className="auth-brand-icon">
+          <ShoppingBag size={30} />
+        </div>
+        <h1>Welcome to DataCart</h1>
+        <p>Sign in to shop, manage your cart, and view your orders.</p>
+      </div>
+      <div className="auth-card">
+        <div className="auth-tabs" role="group" aria-label="Account access">
+          <button
+            type="button"
+            aria-pressed={mode === 'login'}
+            className={mode === 'login' ? 'active' : ''}
+            onClick={() => changeMode('login')}
+          >
+            Log in
+          </button>
+          <button
+            type="button"
+            aria-pressed={mode === 'signup'}
+            className={mode === 'signup' ? 'active' : ''}
+            onClick={() => changeMode('signup')}
+          >
+            Sign up
+          </button>
+        </div>
+        <div className="auth-card-header">
+          <h2>{mode === 'login' ? 'Welcome back' : 'Create your account'}</h2>
+          <p>
+            {mode === 'login'
+              ? 'Enter the email associated with your account.'
+              : 'Your address is optional and can be changed at checkout.'}
+          </p>
+        </div>
+        {error && (
+          <div className="error-banner" role="alert">
+            <TriangleAlert size={16} /> {error}
+          </div>
+        )}
+        <form className="auth-form" onSubmit={submit}>
+          {mode === 'signup' && (
+            <div className="form-field">
+              <label htmlFor="signup-name">Name</label>
+              <input
+                id="signup-name"
+                type="text"
+                autoComplete="name"
+                maxLength={100}
+                required
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </div>
+          )}
+          <div className="form-field">
+            <label htmlFor="account-email">Email</label>
+            <input
+              id="account-email"
+              type="email"
+              autoComplete="email"
+              maxLength={255}
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </div>
+          {mode === 'signup' && (
+            <div className="form-field">
+              <label htmlFor="signup-address">
+                Address <span>Optional</span>
+              </label>
+              <textarea
+                id="signup-address"
+                autoComplete="street-address"
+                maxLength={1000}
+                rows={3}
+                value={address}
+                onChange={(event) => setAddress(event.target.value)}
+              />
+            </div>
+          )}
+          <button className="btn btn-primary btn-lg btn-full" disabled={submitting}>
+            {submitting ? (
+              <>
+                <LoaderCircle className="spinner" size={16} /> Please wait...
+              </>
+            ) : mode === 'login' ? (
+              <>
+                <LogIn size={16} /> Log in
+              </>
+            ) : (
+              <>
+                <User size={16} /> Create account
+              </>
+            )}
+          </button>
+        </form>
+        <p className="auth-demo-note">No password is required for this workshop demo.</p>
+      </div>
+    </main>
   )
 }
 
@@ -791,14 +956,17 @@ function ProductDetailPage({
 }
 
 function CartPage({
+  account,
   onNavigate,
   onCheckout,
 }: {
+  account: Account
   features: Features | null
   onNavigate: (view: View) => void
-  onCheckout: () => Promise<void>
+  onCheckout: (address: string) => Promise<void>
 }) {
   const [cart, setCart] = useState<Cart | null>(null)
+  const [address, setAddress] = useState(account.address ?? '')
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState('')
@@ -818,6 +986,10 @@ function CartPage({
     loadCart()
   }, [loadCart])
 
+  useEffect(() => {
+    setAddress(account.address ?? '')
+  }, [account.address])
+
   const updateQuantity = (productId: number, quantity: number) => {
     fetch('/api/cart/update', {
       method: 'POST',
@@ -834,7 +1006,7 @@ function CartPage({
     setProcessing(true)
     setError('')
     try {
-      await onCheckout()
+      await onCheckout(address)
       loadCart()
     } catch (cause) {
       const message = errorMessage(cause) || 'Checkout failed'
@@ -921,6 +1093,25 @@ function CartPage({
             ))}
           </div>
           <div className="cart-summary">
+            <div className="checkout-address">
+              <div className="checkout-address-heading">
+                <MapPin size={18} />
+                <div>
+                  <label htmlFor="checkout-address">Delivery address</label>
+                  <span>Optional</span>
+                </div>
+              </div>
+              <textarea
+                id="checkout-address"
+                autoComplete="street-address"
+                maxLength={1000}
+                rows={3}
+                placeholder="Add an address for this order"
+                value={address}
+                onChange={(event) => setAddress(event.target.value)}
+              />
+              <p>This address will be saved to your account for your next checkout.</p>
+            </div>
             <div className="cart-summary-row">
               <span>Subtotal ({cart.item_count} items)</span>
               <span className="cart-summary-total">{formatCurrency(cart.subtotal)}</span>
@@ -1092,13 +1283,29 @@ function App() {
   const [toast, setToast] = useState('')
   const [features, setFeatures] = useState<Features | null>(null)
   const [account, setAccount] = useState<Account | null>(null)
+  const [accountLoading, setAccountLoading] = useState(true)
   const [runtime, setRuntime] = useState<RuntimeInfo | null>(null)
 
   const refreshCart = useCallback(() => {
     fetch('/api/cart')
-      .then((response) => response.json() as Promise<Cart>)
+      .then((response) => {
+        if (!response.ok) throw new Error(`${response.status}`)
+        return response.json() as Promise<Cart>
+      })
       .then((result) => setCartCount(result.item_count))
       .catch(() => {})
+  }, [])
+
+  const refreshAccount = useCallback(async () => {
+    const response = await fetch('/api/account')
+    if (response.status === 401) {
+      setAccount(null)
+      return null
+    }
+    if (!response.ok) throw new Error('Account unavailable')
+    const result = (await response.json()) as Account
+    setAccount(result)
+    return result
   }, [])
 
   useEffect(() => {
@@ -1114,19 +1321,18 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (features?.loyalty_active || features?.email_verified_active) {
-      fetch('/api/account')
-        .then((response) => response.json() as Promise<Account>)
-        .then(setAccount)
-        .catch(() => {})
-    } else {
-      setAccount(null)
-    }
-  }, [features])
+    refreshAccount()
+      .catch(() => setAccount(null))
+      .finally(() => setAccountLoading(false))
+  }, [refreshAccount])
 
   useEffect(() => {
-    refreshCart()
-  }, [refreshCart])
+    if (account) {
+      refreshCart()
+    } else {
+      setCartCount(0)
+    }
+  }, [account, refreshCart])
 
   useEffect(() => {
     fetch('/api/runtime')
@@ -1163,8 +1369,12 @@ function App() {
       .catch(() => setToast('Failed to add to cart'))
   }
 
-  const checkout = async () => {
-    const response = await fetch('/api/orders/checkout', { method: 'POST' })
+  const checkout = async (address: string) => {
+    const response = await fetch('/api/orders/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address }),
+    })
     const result = (await response.json()) as CheckoutResult & { detail?: string }
     if (!response.ok) throw new Error(result.detail || 'Checkout failed')
     setToast(
@@ -1173,14 +1383,32 @@ function App() {
         : result.message,
     )
     refreshCart()
-    if (features?.loyalty_active) {
-      fetch('/api/account')
-        .then((accountResponse) => accountResponse.json() as Promise<Account>)
-        .then(setAccount)
-        .catch(() => {})
-    }
+    await refreshAccount().catch(() => {})
     navigate('orders')
   }
+
+  const authenticated = (nextAccount: Account) => {
+    setAccount(nextAccount)
+    setView('home')
+    setToast(`Welcome, ${nextAccount.name}!`)
+  }
+
+  const logout = async () => {
+    await fetch('/api/account/logout', { method: 'POST' }).catch(() => {})
+    setAccount(null)
+    setCartCount(0)
+    setView('home')
+  }
+
+  if (accountLoading) {
+    return (
+      <main className="auth-shell">
+        <Loading />
+      </main>
+    )
+  }
+
+  if (!account) return <AuthPage onAuthenticated={authenticated} />
 
   return (
     <div className="app">
@@ -1212,6 +1440,10 @@ function App() {
           </div>
           <RuntimeIndicator runtime={runtime} />
           <div className="navbar-right">
+            <div className="nav-account" title={account.email}>
+              <User size={16} />
+              <span>{account.name}</span>
+            </div>
             {account?.loyalty_tier && (
               <div className="nav-loyalty">
                 <LoyaltyTierBadge tier={account.loyalty_tier} />
@@ -1226,6 +1458,14 @@ function App() {
             <button className="nav-cart" onClick={() => navigate('cart')}>
               <ShoppingCart size={20} />
               {cartCount > 0 && <span className="cart-badge">{cartCount}</span>}
+            </button>
+            <button
+              className="btn btn-ghost btn-sm nav-logout"
+              onClick={logout}
+              aria-label="Log out"
+              title="Log out"
+            >
+              <LogOut size={16} />
             </button>
           </div>
         </div>
@@ -1256,7 +1496,12 @@ function App() {
           />
         )}
         {view === 'cart' && (
-          <CartPage features={features} onNavigate={navigate} onCheckout={checkout} />
+          <CartPage
+            account={account}
+            features={features}
+            onNavigate={navigate}
+            onCheckout={checkout}
+          />
         )}
         {view === 'orders' && <OrdersPage features={features} onNavigate={navigate} />}
       </main>
