@@ -8,7 +8,7 @@ resources:
       # role for this app's service principal and grants it CONNECT/CREATE, then
       # injects PGHOST/PGPORT/PGUSER/PGDATABASE/PGSSLMODE at runtime. This removes
       # the "password authentication failed" dead-end — no manual SP role setup.
-      # (Schema-level grants on `ecommerce` are still done in Lab 2.1.)
+      # Alembic runs as this role before app startup, so it owns the core schema.
       resources:
         - name: postgres
           postgres:

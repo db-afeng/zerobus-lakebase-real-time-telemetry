@@ -23,10 +23,11 @@ day-2 operational capabilities.
 
 ## Prerequisites
 
-All bonus labs assume you've completed the core setup and seeding:
+All bonus labs assume you've deployed the storefront:
 
-- **Core Lab 1.1** (Discover and Seed) — creates the `ecommerce` schema every
-  bonus lab reads from.
+- **Storefront startup migration** — creates and seeds the `ecommerce` schema every bonus lab
+  reads from.
+- **Core Lab 1.1** — prepares the Unity Catalog bronze target used by the Zerobus lab.
 - **Core Lab 2.1** (Roles & Connect Storefront) — sets up the Postgres roles the
   federation and branching labs rely on.
 

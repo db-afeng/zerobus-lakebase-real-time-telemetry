@@ -9,7 +9,7 @@ You will step into the role of a database engineer at DataCart, a rapidly growin
 | # | Notebook | Type | Description |
 |---|---|---|---|
 | 0 | `0 Workshop Introduction` | Lecture | Workshop overview, Lakebase architecture, and the DataCart scenario |
-| 1.1 | `1.1 Lab - Setup Lakebase and Connect the Storefront` | Lab | Discover the bundle-deployed project, connect via OAuth, seed the e-commerce schema, grant the storefront's service principal access, and provision the clickstream bronze table — bringing the storefront online |
+| 1.1 | `1.1 Lab - Setup Lakebase and Connect the Storefront` | Lab | Verify the Alembic-initialized storefront, provision the clickstream bronze table, and grant the app service principal permission to ingest through Zerobus |
 | 2.1 | `2.1 Lab - Reverse ETL with Synced Tables (UC to Lakebase)` | Lab | Create a promotions Delta table in Unity Catalog and sync it to Lakebase; sale badges appear on the storefront |
 | 3.1 | `3.1 Lab - Clickstream Ingestion with Zerobus (App to Medallion to Lakebase)` | Lab | The storefront streams live clicks to a governed Delta table via Zerobus; a Lakeflow (SQL) medallion aggregates per-product demand and syncs it back to Lakebase — the Supplier Demand View lights up |
 | 4.1 | `4.1 Lab - Lakehouse Sync (Lakebase to UC)` | Lab | Continuously mirror Lakebase tables to Delta in UC; run analytics with zero OLTP load |
@@ -57,7 +57,7 @@ A customer-facing e-commerce web application (React + FastAPI) that **evolves in
 
 | Feature | Appears After |
 |---------|--------------|
-| Products, stock badges, cart, orders | Lab 1.1 |
+| Products, stock badges, cart, orders | App deployment (Alembic startup migration) |
 | Sale badges, discount prices, promo deals | Lab 2.1 |
 | Supplier Demand View (`/supplier`) — aggregated clickstream demand | Lab 3.1 |
 | (UC analytics surface lights up — no storefront change) | Bonus Lab 1.1 (federation) + Lab 4.1 (Lakehouse Sync) |
@@ -121,7 +121,9 @@ Clicking ▶ run on the app in the Bundle resources pane only **starts the compu
 /Workspace/Users/<your-email>/.bundle/datacart-storefront-data-centric/dev/files
 ```
 
-Click Deploy. After source deployment, the app status moves to `RUNNING` and the URL becomes accessible. The app will show "Loading…" until you grant the service principal database access in Lab 1.1.
+Click Deploy. During startup, Alembic creates and seeds the `ecommerce` schema before FastAPI
+starts. After the migration succeeds, the app status moves to `RUNNING` and the product catalog is
+available without running a setup notebook.
 
 #### Alternative: Deploy from your local terminal (CLI)
 
@@ -156,16 +158,11 @@ If you can't or don't want to use DABs at all (e.g., your workspace doesn't supp
 
 The **only** step left for you afterwards is pointing the app at the source code and clicking **Deploy** in the workspace UI — instructions are in the notebook's final cell. Once that's done, all the regular labs (1.1 onward) work the same way as the DAB path because they discover the project and app by name.
 
-### Step 2: Run Lab 1.1 to set up and connect
+### Step 2: Run Lab 1.1 before the Zerobus lab
 
-Open **`1.1 Lab - Setup Lakebase and Connect the Storefront`** in the workspace. This one lab:
-
-1. Discovers the bundle-deployed Lakebase project (`zerobus-lakebase-<your-user-id>`)
-2. Connects via OAuth and seeds 5 tables: customers, products, inventory, orders, order_items
-3. Grants the storefront app's service principal access to the `ecommerce` schema
-
-The storefront shows "Loading…" until the grant in the final step, then populates with products
-and a working cart.
+Open **`1.1 Lab - Setup Lakebase and Connect the Storefront`** in the workspace before Lab 3.1.
+The storefront database is already ready; this lab verifies the app and creates the Unity Catalog
+`clickstream_bronze` table that Zerobus requires, then grants the app service principal write access.
 
 ### Step 3: Go through the rest of the workshop!
 
@@ -176,7 +173,7 @@ Run the remaining labs in order: 3.1 → 4.1 → 5.1, plus the bonus labs.
 
 The storefront **auto-detects schema changes** every 30 seconds. No redeployment is needed — just run the lab and refresh the browser.
 
-### After Lab 1.1 — Setup & Connect the Storefront
+### After App Deployment — Core Storefront
 
 **Database:** 5 tables (customers, products, inventory, orders, order_items). No reviews yet.
 
@@ -191,7 +188,7 @@ The storefront **auto-detects schema changes** every 30 seconds. No redeployment
 
 **Database change:** A `promotions` Delta table is created in Unity Catalog and synced to Lakebase via a synced table pipeline. First synced to a `dev-promotions` branch for validation, then promoted to the `production` branch. The synced table appears as `promotions_synced_prod` (or `promotions`) in the `ecommerce` Postgres schema.
 
-**Important — SP permissions for synced tables:** After the sync completes, you must re-grant the app SP access to the new table. Synced tables are created by the Lakebase sync pipeline (a different internal role), so `ALTER DEFAULT PRIVILEGES` from Lab 1.1 does **not** cover them. Lab 2.1 handles this with:
+**Important — SP permissions for synced tables:** After the sync completes, you must grant the app SP access to the new table. Synced tables are created by the Lakebase sync pipeline (a different internal role), so ownership of the Alembic-managed core tables does **not** cover them. Lab 2.1 handles this with:
 ```sql
 GRANT ALL ON ALL TABLES IN SCHEMA ecommerce TO "<SP_CLIENT_ID>";
 ```
@@ -332,7 +329,8 @@ GRANT ALL ON ALL TABLES IN SCHEMA ecommerce TO "<SP_CLIENT_ID>";
 
 ### "Store Unavailable" error on homepage
 - The Lakebase endpoint may be suspended (scale-to-zero). Wait 10-20 seconds and refresh.
-- Check that the ecommerce schema exists (run `1.1 Lab - Setup Lakebase and Connect the Storefront` first).
+- Check the app logs for an Alembic startup error. A fresh deployment creates the `ecommerce`
+  schema before uvicorn starts.
 
 ### "Loading..." forever
 - Hit `<app-url>/api/dbtest` to check connectivity.
@@ -340,11 +338,12 @@ GRANT ALL ON ALL TABLES IN SCHEMA ecommerce TO "<SP_CLIENT_ID>";
   Resources tab and confirm the binding to your Lakebase project (`zerobus-lakebase-<FirstName>-<LastName>`), then click **Deploy** to restart.
 - If `db_connected: false` with "password authentication failed": the database resource
   was not added, or the SP role was not auto-created. Re-bind the resource and redeploy.
-- If `db_connected: true` with `schema_error`: the SP needs schema grants — run Lab 1.1.
+- If `db_connected: true` with `schema_error`: check the startup logs for a failed migration. If
+  tables were created previously by Lab 1.1, use a fresh Lakebase project as documented by the error.
 
 ### 500 errors on product pages
 - Check app logs at `<app-url>/logz`
-- Verify the SP has PostgreSQL roles on the ecommerce schema (Lab 1.1)
+- Verify `alembic upgrade head` completed before uvicorn started.
 
 ### Spring Sale Deals section not appearing (after Lab 2.1)
 - Check `/api/features` — if `promotions_active` is `false`, the SP can't see the synced table.

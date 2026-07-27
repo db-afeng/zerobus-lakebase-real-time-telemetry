@@ -151,16 +151,17 @@ Lakeflow pipeline and is synced back to Lakebase for this view to read.
 
 ## Database Schema
 
-The app starts with **5 tables** (Lab 1.1). Additional tables and columns are added as labs progress.
+The app starts with **5 tables** created and seeded by Alembic before FastAPI starts. Additional
+tables and columns are added as labs progress.
 
-### Initial Tables (After Lab 1.1)
+### Initial Tables (After App Deployment)
 
 ```
 ecommerce.customers    ── 100 rows  (name, email, created_at)
 ecommerce.products     ── 50 rows   (name, price, category)
 ecommerce.inventory    ── 50 rows   (product_id, quantity, warehouse, reorder_level)
 ecommerce.orders       ── 22 rows   (customer_id, product_id, quantity, total, currency, status)
-ecommerce.order_items  ── ~55 rows  (order_id, product_id, quantity, unit_price, line_total)
+ecommerce.order_items  ── 52 rows   (order_id, product_id, quantity, unit_price, line_total)
 ```
 
 ### Tables Added During Labs
@@ -293,8 +294,8 @@ resources:
 > will fail with "password authentication failed". The resource binding above creates the
 > role automatically.
 
-The binding grants the SP `CONNECT` + `CREATE` on the database, but not schema-level access.
-Lab 1.1 grants the SP `USAGE` + `ALL` on the `ecommerce` schema so the storefront can serve data.
+The binding grants the SP `CONNECT` + `CREATE` on the database. Alembic runs as that SP at app
+startup, so it owns the `ecommerce` schema and the core storefront tables it creates.
 
 ### Dual-Mode Auth (`server/config.py`)
 
@@ -376,8 +377,8 @@ ecommerce.promotions    ──sync──►  ecommerce.promotions_synced_prod �
 
 1. Marketing team creates/updates the `promotions` Delta table in Unity Catalog
 2. A Lakebase synced table pipeline copies the data to the `ecommerce` schema in Postgres
-3. **Re-grant SP permissions** — synced tables are created by the sync pipeline (a different
-   role), so `ALTER DEFAULT PRIVILEGES` from Lab 1.1 doesn't cover them. Run
+3. **Grant SP permissions** — synced tables are created by the sync pipeline (a different role),
+   so ownership of the Alembic-managed core tables doesn't cover them. Run
    `GRANT ALL ON ALL TABLES IN SCHEMA ecommerce TO "<SP_CLIENT_ID>";` after the sync.
 4. The storefront's `schema_detector` detects the table within 30 seconds via
    `get_promotions_table()`, which checks for `promotions_synced_prod` first, then `promotions`

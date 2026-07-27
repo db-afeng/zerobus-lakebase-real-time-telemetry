@@ -35,8 +35,8 @@ Lakebase binding, and the app's `ENDPOINT_NAME` env var.
 
 `bundle deploy` provisions the Lakebase Autoscaling project AND uploads the app source files in
 one step. The app is bound to the project, so the platform auto-creates the app's service
-principal Postgres login role. The bundle does **not** create the Postgres schema, seed tables, or
-grant schema-level permissions — those happen in Lab 1.1, which is part of the actual workshop content.
+principal Postgres login role. When the app starts, Alembic connects as that role and creates,
+versions, and seeds the `ecommerce` schema before FastAPI starts.
 
 Both the Lakebase project and the app name are auto-derived per user from
 `${workspace.current_user.id}` (e.g. `zerobus-lakebase-6530815146371371` and
@@ -65,7 +65,8 @@ pane only starts the compute; it doesn't push the source. To push and start, do 
 - **From a local terminal (recommended)**: `cd datacart-storefront && databricks bundle run datacart_storefront --profile <your-profile>`
 - **Or in the workspace**: Compute → Apps → `storefront-<your-user-id>` → **Deploy** button → set source path to `/Workspace/Users/<your-email>/.bundle/datacart-storefront-data-centric/dev/files` → click Deploy.
 
-After source is deployed, app status moves to `RUNNING` and the URL becomes accessible.
+After source is deployed, Alembic initializes the database, then the app status moves to `RUNNING`
+and the populated storefront becomes accessible.
 
 ## Path B: Deploy from a local terminal
 
@@ -94,9 +95,9 @@ If your default CLI profile already targets the right workspace, the `--profile`
 
 ## Run the Labs
 
-After deployment, the app shows "Loading…" until the database is set up:
+After deployment, the app startup migration creates the five core tables and sample data:
 
-1. **Lab 1.1** (`1.1 Lab - Setup Lakebase and Connect the Storefront`) — discovers the deployed project, creates the `ecommerce` schema, seeds 5 tables, and grants the storefront's service principal access to the schema. The "Loading…" disappears and you see products + a working cart.
+1. **Lab 1.1** (`1.1 Lab - Setup Lakebase and Connect the Storefront`) — verifies the storefront, creates the Unity Catalog `clickstream_bronze` table needed by Zerobus, and grants the app service principal permission to ingest.
 2. **Remaining labs** in order: 3.1 → 4.1 → 5.1, plus the bonus labs.
 
 ## Re-deploying After Edits
@@ -119,7 +120,7 @@ is destroyed natively by the bundle, no manual cleanup needed).
 
 ## Troubleshooting
 
-### "Project not found" in Lab 1.1
+### Storefront migration reports a missing project
 
 Verify the project deployed successfully:
 
@@ -129,7 +130,7 @@ databricks postgres list-projects --profile <your-profile>
 
 You should see one named `projects/zerobus-lakebase-<your-user-id>`. If absent, re-run `bundle deploy`.
 
-### Storefront stays on "Loading…" after Lab 1.1
+### Storefront stays on "Loading…" after deployment
 
 Look at the app logs:
 
@@ -138,9 +139,14 @@ databricks apps logs storefront-<your-user-id> --profile <your-profile>
 ```
 
 Common causes:
-- The SP didn't get `USAGE` / `SELECT` / `INSERT` grants. Re-run Lab 1.1.
-- The app started before the schema existed. Run Lab 1.1, then re-run `databricks bundle run datacart_storefront` to push fresh source.
-- If logs show `password authentication failed`, the app's Lakebase resource binding didn't create the SP's Postgres role. Confirm the `postgres` binding in `resources/datacart_storefront.app.yml` deployed, then redeploy. (Schema-level access is still granted separately in Lab 1.1.)
+- If logs show `password authentication failed`, the app's Lakebase resource binding didn't create
+  the SP's Postgres role. Confirm the `postgres` binding in
+  `resources/datacart_storefront.app.yml` deployed, then redeploy.
+- If logs report legacy tables without Alembic state, recreate the workshop Lakebase project. The
+  automatic migration intentionally supports fresh deployments rather than taking ownership of
+  tables created previously by a notebook user.
+- If the endpoint was scaled to zero, wait for the bounded startup retries; persistent failures
+  indicate an endpoint or credential problem in the preceding log entries.
 
 ### `bundle validate` errors about `root_path`
 
