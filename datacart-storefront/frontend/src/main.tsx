@@ -1057,7 +1057,7 @@ function RuntimeIndicator({ runtime }: { runtime: RuntimeInfo | null }) {
   const backendValue = runtime ? displayLocation(runtime.backend) : 'Unavailable'
   const databaseValue =
     runtime?.database.location === 'lakebase'
-      ? `Lakebase · ${runtime.database.project} · ${runtime.database.branch}`
+      ? `Lakebase · ${runtime.database.branch} · ${runtime.database.project}`
       : runtime
         ? 'Local Docker'
         : 'Unavailable'
