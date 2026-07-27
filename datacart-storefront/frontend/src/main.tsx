@@ -32,6 +32,22 @@ import {
 import './index.css'
 
 type View = 'home' | 'shop' | 'product' | 'cart' | 'orders'
+type RuntimeLocation = 'local' | 'docker' | 'production'
+
+interface RuntimeInfo {
+  backend: RuntimeLocation
+  database: {
+    location: 'local-docker' | 'lakebase'
+    project: string | null
+    branch: string | null
+  }
+}
+
+const frontendRuntime: RuntimeLocation = import.meta.env.DEV
+  ? 'local'
+  : import.meta.env.VITE_FRONTEND_RUNTIME === 'docker'
+    ? 'docker'
+    : 'production'
 
 interface Features {
   reviews_active?: boolean
@@ -1034,6 +1050,41 @@ function OrdersPage({
   )
 }
 
+function RuntimeIndicator({ runtime }: { runtime: RuntimeInfo | null }) {
+  const displayLocation = (location: RuntimeLocation) =>
+    location.charAt(0).toUpperCase() + location.slice(1)
+  const frontendValue = displayLocation(frontendRuntime)
+  const backendValue = runtime ? displayLocation(runtime.backend) : 'Unavailable'
+  const databaseValue =
+    runtime?.database.location === 'lakebase'
+      ? `Lakebase · ${runtime.database.project} · ${runtime.database.branch}`
+      : runtime
+        ? 'Local Docker'
+        : 'Unavailable'
+
+  return (
+    <div className="runtime-indicator" aria-label="Runtime locations">
+      <span className="runtime-chip" title={`Frontend: ${frontendValue}`}>
+        <span className="runtime-chip-label">Frontend</span>
+        <strong>{frontendValue}</strong>
+      </span>
+      <span className="runtime-chip" title={`Backend: ${backendValue}`}>
+        <span className="runtime-chip-label">Backend</span>
+        <strong>{backendValue}</strong>
+      </span>
+      <span
+        className="runtime-chip runtime-chip-database"
+        data-tooltip={`Database: ${databaseValue}`}
+        aria-label={`Database: ${databaseValue}`}
+        tabIndex={0}
+      >
+        <span className="runtime-chip-label">Database</span>
+        <strong className="runtime-chip-value">{databaseValue}</strong>
+      </span>
+    </div>
+  )
+}
+
 function App() {
   const [view, setView] = useState<View>('home')
   const [selectedProductId, setSelectedProductId] = useState(0)
@@ -1041,6 +1092,7 @@ function App() {
   const [toast, setToast] = useState('')
   const [features, setFeatures] = useState<Features | null>(null)
   const [account, setAccount] = useState<Account | null>(null)
+  const [runtime, setRuntime] = useState<RuntimeInfo | null>(null)
 
   const refreshCart = useCallback(() => {
     fetch('/api/cart')
@@ -1075,6 +1127,16 @@ function App() {
   useEffect(() => {
     refreshCart()
   }, [refreshCart])
+
+  useEffect(() => {
+    fetch('/api/runtime')
+      .then((response) => {
+        if (!response.ok) throw new Error('Runtime metadata unavailable')
+        return response.json() as Promise<RuntimeInfo>
+      })
+      .then(setRuntime)
+      .catch(() => setRuntime(null))
+  }, [])
 
   const navigate = (nextView: View) => {
     setView(nextView)
@@ -1148,6 +1210,7 @@ function App() {
               Orders
             </button>
           </div>
+          <RuntimeIndicator runtime={runtime} />
           <div className="navbar-right">
             {account?.loyalty_tier && (
               <div className="nav-loyalty">

@@ -31,6 +31,7 @@ hooks-uninstall: ## Remove this clone's post-checkout registration
 
 check: ## Validate branch naming and both Compose modes
 	@./scripts/lakebase-branch.sh --self-test
+	@python3 -c 'from server.runtime import get_runtime_info; local = get_runtime_info({"APP_RUNTIME": "docker"}); assert local == {"backend": "docker", "database": {"location": "local-docker", "project": None, "branch": None}}; lakebase = get_runtime_info({"DATABRICKS_APP_NAME": "storefront", "ENDPOINT_NAME": "projects/demo-project/branches/dev-alex/endpoints/primary"}); assert lakebase == {"backend": "production", "database": {"location": "lakebase", "project": "demo-project", "branch": "dev-alex"}}'
 	@docker compose config --quiet
 	@PGHOST=lakebase.example PGUSER=developer@example.com PGPASSWORD=test \
 		ENDPOINT_NAME=projects/test/branches/test/endpoints/primary \

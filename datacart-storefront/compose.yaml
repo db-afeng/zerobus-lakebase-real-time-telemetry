@@ -33,6 +33,7 @@ services:
       PGDATABASE: datacart
       PGSSLMODE: disable
       DB_SCHEMA: ecommerce
+      APP_RUNTIME: docker
       ZEROBUS_ENABLED: "false"
     ports:
       - "8000:8000"

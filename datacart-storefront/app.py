@@ -1,10 +1,11 @@
 import logging
+import os
 import traceback
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-import os
+from server.runtime import get_runtime_info
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -47,6 +48,11 @@ app.include_router(supplier.router)
 @app.get("/api/health")
 def health():
     return {"status": "ok", "app": "DataCart Storefront"}
+
+
+@app.get("/api/runtime")
+def runtime():
+    return get_runtime_info()
 
 
 @app.get("/api/features")

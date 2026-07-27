@@ -63,6 +63,12 @@ build_lakebase_branch_name() {
     printf '%s-%s\n' "$prefix" "$digest"
 }
 
+endpoint_is_connectable() {
+    local state="$1"
+    local host="$2"
+    [[ -n "$host" && "$state" =~ ^(ACTIVE|IDLE|SUSPENDED)$ ]]
+}
+
 run_self_test() {
     local actual long_name
 
@@ -80,6 +86,14 @@ run_self_test() {
 
     if build_lakebase_branch_name "!!!" "main" >/dev/null 2>&1; then
         echo "Expected an unusable Git user to be rejected" >&2
+        return 1
+    fi
+
+    endpoint_is_connectable "ACTIVE" "lakebase.example" || return 1
+    endpoint_is_connectable "IDLE" "lakebase.example" || return 1
+    endpoint_is_connectable "SUSPENDED" "lakebase.example" || return 1
+    if endpoint_is_connectable "PROVISIONING" "lakebase.example"; then
+        echo "Expected a provisioning endpoint to remain unavailable" >&2
         return 1
     fi
 
@@ -182,9 +196,9 @@ ensure_endpoint() {
             ENDPOINT_NAME="$(jq -er '.name' <<<"$endpoint")"
             state="$(jq -r '.status.current_state // "unknown"' <<<"$endpoint")"
             host="$(jq -r '.status.hosts.host // empty' <<<"$endpoint")"
-            if [[ "$state" == "ACTIVE" && -n "$host" ]]; then
+            if endpoint_is_connectable "$state" "$host"; then
                 ENDPOINT_HOST="$host"
-                echo "Lakebase endpoint is ACTIVE at $ENDPOINT_HOST"
+                echo "Lakebase endpoint is $state at $ENDPOINT_HOST"
                 return
             fi
             echo "Waiting for Lakebase endpoint (${state}, attempt ${attempt}/60)"
@@ -210,7 +224,7 @@ ensure_endpoint() {
         sleep 5
     done
 
-    echo "Timed out waiting for an ACTIVE Lakebase endpoint" >&2
+    echo "Timed out waiting for a connectable Lakebase endpoint" >&2
     exit 1
 }
 

@@ -864,6 +864,88 @@ body {
   gap: 12px;
 }
 
+.runtime-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.runtime-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.runtime-chip::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.runtime-chip-label {
+  font-weight: 500;
+}
+
+.runtime-chip strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.runtime-chip-database {
+  position: relative;
+  max-width: 330px;
+}
+
+.runtime-chip-database::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 200;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.15s,
+    transform 0.15s;
+}
+
+.runtime-chip-database:hover::after,
+.runtime-chip-database:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.runtime-chip-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .nav-loyalty {
   display: flex;
   align-items: center;
@@ -911,7 +993,34 @@ body {
   color: var(--text-muted);
 }
 
+@media (max-width: 1100px) {
+  .runtime-chip-label {
+    display: none;
+  }
+}
+
 @media (max-width: 768px) {
+  .navbar-inner {
+    height: auto;
+    min-height: 60px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+  }
+
+  .runtime-indicator {
+    order: 4;
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .runtime-indicator::-webkit-scrollbar {
+    display: none;
+  }
+
   .product-detail {
     grid-template-columns: 1fr;
   }

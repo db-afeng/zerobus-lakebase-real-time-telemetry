@@ -1,6 +1,8 @@
 FROM node:20-alpine AS build
 
 ARG NPM_REGISTRY=https://npm-proxy.cloud.databricks.com/
+ARG VITE_FRONTEND_RUNTIME=docker
+ENV VITE_FRONTEND_RUNTIME=$VITE_FRONTEND_RUNTIME
 
 WORKDIR /app
 
