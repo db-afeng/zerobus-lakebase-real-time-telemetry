@@ -2,15 +2,15 @@
 
 ## Local development with Docker
 
-The local stack runs the compiled React storefront in Nginx, the FastAPI backend
-with reload enabled, and PostgreSQL 17 with the seeded workshop data.
+The local stack builds the React storefront from source and serves it with
+Nginx, alongside the FastAPI backend and PostgreSQL 17 seeded workshop data.
 
 ```bash
 docker compose up --build
 ```
 
-The Compose build uses the Databricks PyPI proxy by default. Override
-`PIP_INDEX_URL` when a different package index is required.
+The Compose build uses the Databricks PyPI and npm proxies by default. Override
+`PIP_INDEX_URL` or `NPM_REGISTRY` when different package indexes are required.
 
 Open:
 
@@ -21,8 +21,7 @@ Open:
 - PostgreSQL: `localhost:5432` (`datacart` / `datacart` / `datacart`)
 
 The backend source is bind-mounted, so Python changes trigger an automatic
-reload. The frontend container serves the existing `frontend/dist` artifact;
-after replacing that build, rebuild the frontend image:
+reload. Frontend source changes require rebuilding the frontend image:
 
 ```bash
 docker compose build frontend

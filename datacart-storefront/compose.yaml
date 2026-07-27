@@ -55,6 +55,8 @@ services:
     build:
       context: frontend
       dockerfile: Dockerfile
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://npm-proxy.cloud.databricks.com/}
     ports:
       - "3000:80"
     depends_on:
