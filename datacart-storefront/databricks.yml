@@ -37,3 +37,4 @@ targets:
     mode: development
     workspace:
       root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+      host: https://fevm-infomedia-lakebase.cloud.databricks.com
