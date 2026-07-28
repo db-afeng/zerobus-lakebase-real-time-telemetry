@@ -248,10 +248,9 @@ import psycopg2
 
 w = WorkspaceClient()
 
-# Bundle-deployed Lakebase project (datacart-storefront/databricks.yml)
-# Project name is auto-derived per user from ${workspace.current_user.id}
-project_name = f"zerobus-lakebase-{w.current_user.me().id}"
-db_user = w.current_user.me().user_name
+# Externally managed Lakebase project used by the storefront bundle.
+project_name = "zerobus-lakebase-workshop-alex-feng"
+db_user = "lakebase-app-schema-owner"
 
 # Unity Catalog configuration — set the catalog before running
 UC_CATALOG = "<add-your-catalog-name-here>"
@@ -376,7 +375,7 @@ display(spark.table(UC_TABLE))
 
 # COMMAND ----------
 
-def connect_to_branch(branch_id, wait_seconds=300):
+def connect_to_branch(branch_id, wait_seconds=300, role=db_user):
     from databricks.sdk.service.postgres import Endpoint, EndpointSpec, EndpointType, Duration as Dur
     branch_full = f"projects/{project_name}/branches/{branch_id}"
     min_cu, max_cu, suspend_timeout_seconds = 0.5, 4.0, 1800
@@ -406,7 +405,7 @@ def connect_to_branch(branch_id, wait_seconds=300):
     host = ep.status.hosts.host
     cred = w.postgres.generate_database_credential(endpoint=ep.name)
     conn = psycopg2.connect(host=host, port=5432, dbname="databricks_postgres",
-                            user=db_user, password=cred.token, sslmode="require")
+                            user=role, password=cred.token, sslmode="require")
     conn.autocommit = True
     print(f"✅ Connected to branch '{branch_id}'")
     return conn, host, ep.name
@@ -468,7 +467,7 @@ display(spark.sql(f"""
 # MAGIC 5. In the dialog:
 # MAGIC    - **Table name**: input **promotions_synced_prod**
 # MAGIC    - **Database type**: Select **Lakebase Serverless (Autoscaling)**
-# MAGIC    - **Project**: Select your workshop project (`zerobus-lakebase-<FirstName>-<LastName>`)
+# MAGIC    - **Project**: Select `zerobus-lakebase-workshop-alex-feng`
 # MAGIC    - **Branch**: Select **production**
 # MAGIC    - **Sync mode**: Select **Snapshot** (full copy, simplest for demo)
 # MAGIC    - **Primary key**: Verify `id` is selected
@@ -508,11 +507,11 @@ display(spark.sql(f"""
 # MAGIC ([typical project setup](https://learn.microsoft.com/en-us/azure/databricks/oltp/projects/terraform-typical-project))
 # MAGIC
 # MAGIC ```hcl
-# MAGIC # Reference the bundle-deployed Lakebase Autoscaling project.
+# MAGIC # Reference the externally managed Lakebase Autoscaling project.
 # MAGIC data "databricks_current_user" "me" {}
 # MAGIC
 # MAGIC locals {
-# MAGIC   project_id     = "zerobus-lakebase-${data.databricks_current_user.me.id}"
+# MAGIC   project_id     = "zerobus-lakebase-workshop-alex-feng"
 # MAGIC   production_arn = "projects/${local.project_id}/branches/production"
 # MAGIC }
 # MAGIC
@@ -552,12 +551,12 @@ display(spark.sql(f"""
 # MAGIC > pipeline persists checkpoints — it must be a UC catalog where you have `CREATE TABLE` rights.
 # MAGIC
 # MAGIC For the rest of this workshop we use the UI-created synced table. The next step
-# MAGIC (granting the SP access) is the same regardless of which path created the synced table.
+# MAGIC (granting the group role access) is the same regardless of which path created the synced table.
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 5: Grant SP Access to the Synced Table
+# MAGIC ## Step 5: Grant the App Group Role Access to the Synced Table
 # MAGIC
 # MAGIC **This is a critical step.** Synced tables are created by the Lakebase sync pipeline —
 # MAGIC a different internal role than your user account. This means the `ALTER DEFAULT PRIVILEGES`
@@ -565,33 +564,35 @@ display(spark.sql(f"""
 # MAGIC tables created by your user.
 # MAGIC
 # MAGIC We need to re-run `GRANT ALL ON ALL TABLES` to include the newly synced `promotions` table.
-# MAGIC Without this, the storefront's service principal can't read the promotions.
+# MAGIC Without this, the storefront's database group role can't read the promotions.
 # MAGIC
 # MAGIC > **Key takeaway:** After every new synced table is created, re-grant table permissions
-# MAGIC > to the app's SP. This is a one-time step per synced table.
+# MAGIC > to `lakebase-app-schema-owner`. This is a one-time step per synced table.
 
 # COMMAND ----------
 
-# Get the app's SP client ID
-APP_NAME = f"storefront-{w.current_user.me().id}"
-app_info = w.apps.get(APP_NAME)
-SP_CLIENT_ID = app_info.service_principal_client_id
-print(f"App SP: {SP_CLIENT_ID}")
+GROUP_ROLE = "lakebase-app-schema-owner"
+quoted_group_role = f'"{GROUP_ROLE}"'
 
-# Connect as the project owner to grant permissions
-conn_prod, _, _ = connect_to_branch("production")
+# Synced tables are owned by an internal pipeline role, so use the project owner
+# for the GRANT while targeting the app's shared group role.
+conn_prod, _, _ = connect_to_branch(
+    "production", role=w.current_user.me().user_name
+)
 
 with conn_prod.cursor() as cur:
-    sp_role = f'"{SP_CLIENT_ID}"'
-
     # Re-grant ALL on ALL tables — this picks up the new synced table
-    cur.execute(f"GRANT ALL ON ALL TABLES IN SCHEMA {db_schema} TO {sp_role};")
+    cur.execute(
+        f"GRANT ALL ON ALL TABLES IN SCHEMA {db_schema} TO {quoted_group_role};"
+    )
     print(f"✅ Granted ALL on ALL tables in {db_schema} (includes synced tables)")
 
-    cur.execute(f"GRANT ALL ON ALL SEQUENCES IN SCHEMA {db_schema} TO {sp_role};")
+    cur.execute(
+        f"GRANT ALL ON ALL SEQUENCES IN SCHEMA {db_schema} TO {quoted_group_role};"
+    )
     print(f"✅ Granted ALL on ALL sequences in {db_schema}")
 
-print(f"\n🎉 SP can now read the promotions synced table!")
+print(f"\n🎉 {GROUP_ROLE} can now read the promotions synced table!")
 
 # COMMAND ----------
 

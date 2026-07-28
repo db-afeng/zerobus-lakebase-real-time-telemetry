@@ -151,7 +151,8 @@ Lakeflow pipeline and is synced back to Lakebase for this view to read.
 
 ## Database Schema
 
-The app starts with **5 tables** created and seeded by Alembic before FastAPI starts. Additional
+The app starts with **5 empty tables** created by Alembic before FastAPI starts. The workshop
+fixture is loaded separately with `python scripts/lakebase_db.py seed --profile <profile>`. Additional
 tables and columns are added as labs progress.
 
 ### Initial Tables (After App Deployment)
@@ -270,14 +271,16 @@ ecommerce.order_items  ── 52 rows   (order_id, product_id, quantity, unit_pr
 
 ## Authentication & Connection Pattern
 
-### App Resource Auth (Recommended)
+### App Resource and Group-Role Auth
 
 The app uses the **Databricks App Resource** pattern for Lakebase connectivity. When you
 add the Lakebase project as a database resource in the app settings:
 
-1. The runtime auto-injects `PGHOST`, `PGUSER`, `PGDATABASE`, and `PGPORT` environment variables
-2. The service principal's Postgres role is auto-created through the Lakebase OAuth system
-3. The app's `OAuthConnection` class generates fresh tokens via `generate_database_credential`
+1. The runtime auto-injects `PGHOST`, `PGUSER`, `PGDATABASE`, and `PGPORT`.
+2. The binding creates the service principal's OAuth login role.
+3. `OAuthConnection` generates fresh database tokens as that service principal.
+4. The driver supplies `lakebase-app-schema-owner` as the Postgres username, so Lakebase validates
+   group membership and establishes the session as the stable group owner.
 
 This is configured declaratively in `resources/datacart_storefront.app.yml`:
 ```yaml
@@ -289,13 +292,13 @@ resources:
       permission: CAN_CONNECT_AND_CREATE
 ```
 
-> **Important**: Do NOT manually create the SP's Postgres role with `CREATE ROLE`.
-> Manually-created roles are not linked to the Lakebase OAuth authentication system and
-> will fail with "password authentication failed". The resource binding above creates the
-> role automatically.
+> The app service principal must be added to the `lakebase-app-schema-owner` workspace group after
+> its first stopped bundle deployment and before the app starts. The matching production-branch
+> role must be an OAuth `GROUP` role, not a plain Postgres `NOLOGIN` role.
 
-The binding grants the SP `CONNECT` + `CREATE` on the database. Alembic runs as that SP at app
-startup, so it owns the `ecommerce` schema and the core storefront tables it creates.
+The binding still grants the generated SP role `CONNECT` + `CREATE`, but the active database
+identity is the group role. Alembic therefore creates and owns the `ecommerce` schema, tables,
+sequences, and version table as `lakebase-app-schema-owner`.
 
 ### Dual-Mode Auth (`server/config.py`)
 
@@ -308,7 +311,7 @@ def get_workspace_client():
     if IS_DATABRICKS_APP:
         return WorkspaceClient()  # Auto-injected SP credentials
     else:
-        return WorkspaceClient(profile="fe-vm-ben")  # CLI profile
+        return WorkspaceClient(profile=os.environ.get("DATABRICKS_PROFILE", "DEFAULT"))
 ```
 
 ### OAuth Connection Pool (`server/db.py`)
@@ -319,9 +322,11 @@ The `OAuthConnection` class generates a fresh OAuth token every time the pool cr
 class OAuthConnection(psycopg.Connection):
     @classmethod
     def connect(cls, conninfo='', **kwargs):
-        credential = w.postgres.generate_database_credential(endpoint=endpoint_name)
+        credential = w.postgres.generate_database_credential(endpoint=ENDPOINT_NAME)
         kwargs['password'] = credential.token
         return super().connect(conninfo, **kwargs)
+
+username = os.environ["LAKEBASE_PG_ROLE"]
 ```
 
 Key configuration:
@@ -377,9 +382,10 @@ ecommerce.promotions    ──sync──►  ecommerce.promotions_synced_prod �
 
 1. Marketing team creates/updates the `promotions` Delta table in Unity Catalog
 2. A Lakebase synced table pipeline copies the data to the `ecommerce` schema in Postgres
-3. **Grant SP permissions** — synced tables are created by the sync pipeline (a different role),
+3. **Grant group-role permissions** — synced tables are created by the sync pipeline (a different role),
    so ownership of the Alembic-managed core tables doesn't cover them. Run
-   `GRANT ALL ON ALL TABLES IN SCHEMA ecommerce TO "<SP_CLIENT_ID>";` after the sync.
+   `GRANT ALL ON ALL TABLES IN SCHEMA ecommerce TO "lakebase-app-schema-owner";` as the project
+   owner after the sync.
 4. The storefront's `schema_detector` detects the table within 30 seconds via
    `get_promotions_table()`, which checks for `promotions_synced_prod` first, then `promotions`
 5. The `shop.py` routes query the detected table to overlay sale badges and discount prices

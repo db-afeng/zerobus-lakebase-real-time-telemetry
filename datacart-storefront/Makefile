@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 LAKEBASE_COMPOSE := docker compose -f compose.yaml -f compose.lakebase.yaml --env-file .env.lakebase
 
-.PHONY: help dev-local dev-lakebase refresh-lakebase dev-down hooks-install hooks-uninstall check
+.PHONY: help dev-local dev-lakebase refresh-lakebase dev-down dev-destroy hooks-install hooks-uninstall check
 
 .DEFAULT_GOAL := help
 
@@ -22,6 +22,9 @@ refresh-lakebase: ## Refresh the hourly credential and recreate the backend
 
 dev-down: ## Stop local or Lakebase development containers
 	docker compose down
+
+dev-destroy: ## Stop local or Lakebase development containers
+	docker compose down --volumes
 
 hooks-install: ## Enable Lakebase provisioning after branch checkouts
 	@./scripts/manage-post-checkout-hook.sh install

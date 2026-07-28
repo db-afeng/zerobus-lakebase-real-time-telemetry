@@ -75,21 +75,27 @@ A customer-facing e-commerce web application (React + FastAPI) that **evolves in
 
 ## Setup Steps
 
-### Step 1: Deploy the Storefront and Lakebase Project via DABs
+### Step 1: Prepare Lakebase, then deploy the Storefront via DABs
 
-The `datacart-storefront/` folder is a Declarative Automation Bundle. A single `bundle deploy` provisions:
+The Lakebase project is managed outside the bundle so the shared database identity exists before
+the app starts:
 
-- The **Lakebase Autoscaling project** (declared as a native `postgres_projects` DAB resource — see [docs](https://docs.databricks.com/aws/en/oltp/projects/manage-with-bundles))
-  - Configured for cost efficiency: **0.5–2 CU autoscaling** with **300s scale-to-zero** timeout
-  - PG 17, 7-day PITR retention window
-  - Project ID auto-derived from the deploying user's workspace ID (e.g. `zerobus-lakebase-6530815146371371`) so multiple attendees can deploy into one workspace without colliding
+- Project: `zerobus-lakebase-workshop-alex-feng`
+- Workspace group and production-branch OAuth role: `lakebase-app-schema-owner`
+- The group needs `CONNECT, CREATE` on `databricks_postgres`
+- `alex.feng@databricks.com` must be a group member
+
+The `datacart-storefront/` folder is a Declarative Automation Bundle that deploys:
+
 - The **DataCart Storefront app** (`storefront-<your-user-id>`)
   - App name auto-derived from the deploying user's workspace ID (e.g. `storefront-6530815146371371`) so multiple attendees can deploy into one workspace without colliding
   - Description shows the deployer's full name in the Apps list UI, mirroring how the Lakebase project's `display_name` works
   - Source code path points at the bundle's workspace upload location (`${workspace.file_path}`)
-  - **Bound to the Lakebase project** as a native app resource (`postgres` binding with `CAN_CONNECT_AND_CREATE`), which auto-creates the app's service principal Postgres login role and injects `PGHOST`/`PGUSER`/`PGDATABASE`/etc. at runtime
+  - **Bound to the existing Lakebase project** as a native app resource, which creates the app
+    login and injects `PGHOST`/`PGUSER`/`PGDATABASE`/etc.
 
-> **Single source of truth:** the project slug and endpoint path are defined once as bundle `variables` (`project_id`, `endpoint_name`) in `databricks.yml` and referenced by the `postgres_projects` resource, the app's Lakebase binding, and the app's `ENDPOINT_NAME` env var. The app reads connection details from the injected env vars and mints short-lived OAuth DB tokens via `generate_database_credential` (Lakebase tokens expire hourly, so there is no static password) — see `datacart-storefront/server/db.py`.
+The app token is minted as its service principal, but Postgres authenticates it under
+`lakebase-app-schema-owner`. Alembic and runtime database work therefore share a stable owner.
 
 The target's `root_path` is also derived from `${workspace.current_user.userName}`, so each attendee gets their own bundle deploy path with **zero manual configuration**.
 
@@ -107,13 +113,18 @@ Prerequisites:
 4. In the **Deployments** pane, choose target **`dev`** and click **Deploy**.
 5. Review the **Deploy to dev** confirmation dialog and click **Deploy** again.
 
-This creates the Lakebase project (with autoscaling settings) and the app shell, and uploads the app source code to:
+This creates a stopped app shell and uploads its source code to:
 ```
 /Workspace/Users/<your-email>/.bundle/datacart-storefront-data-centric/dev/files/
 ```
 That `.bundle/.../files/` location is what the app reads from at runtime.
 
-**2. Start the app + push the source:**
+**2. Add the app identity to the group:**
+
+After the deploy creates the app service principal, add it to the
+`lakebase-app-schema-owner` workspace group.
+
+**3. Start the app + push the source:**
 
 Clicking ▶ run on the app in the Bundle resources pane only **starts the compute**; it doesn't push the source. To push the source AND start the app, navigate to **Compute → Apps → `storefront-<your-user-id>` → Deploy** button (find your app in the list — the description shows your full name). Set the source path to:
 
@@ -121,9 +132,13 @@ Clicking ▶ run on the app in the Bundle resources pane only **starts the compu
 /Workspace/Users/<your-email>/.bundle/datacart-storefront-data-centric/dev/files
 ```
 
-Click Deploy. During startup, Alembic creates and seeds the `ecommerce` schema before FastAPI
-starts. After the migration succeeds, the app status moves to `RUNNING` and the product catalog is
-available without running a setup notebook.
+Click Deploy. During startup, Alembic creates the empty `ecommerce` schema before FastAPI starts.
+Then load the deterministic workshop fixture explicitly:
+
+```bash
+cd datacart-storefront
+python scripts/lakebase_db.py seed --profile <your-profile>
+```
 
 #### Alternative: Deploy from your local terminal (CLI)
 
@@ -137,26 +152,21 @@ cd datacart-storefront
 # Validate the bundle
 databricks bundle validate --profile <your-profile>
 
-# Deploy the Lakebase project + the app shell + upload source files
+# Create the stopped app shell + upload source files
 databricks bundle deploy --profile <your-profile>
+
+# Add the new app service principal to lakebase-app-schema-owner.
 
 # Push the source and start the app (this is the step that actually deploys the source)
 databricks bundle run datacart_storefront --profile <your-profile>
+
+# Seed the empty schema after startup Alembic succeeds
+python scripts/lakebase_db.py seed --profile <your-profile>
 ```
 
 > If your default CLI profile already points at the right workspace, the `--profile <your-profile>` flag is optional.
 
 > **Where the source lives after deploy** — at `/Workspace/Users/<your-email>/.bundle/datacart-storefront-data-centric/dev/files/`. That's what the app's `source_code_path` points at. Editing files in your Git folder doesn't change what the running app sees until you re-run `bundle deploy` (re-upload) and `bundle run` (re-deploy source onto the app).
-
-#### Alternative: No-DABs setup via the SDK
-
-If you can't or don't want to use DABs at all (e.g., your workspace doesn't support the workspace deploy flow and you don't have the CLI), open the **`Optional - Create Lakebase Project (SDK).py`** notebook in this folder. The notebook handles almost everything the bundle does, via the Databricks SDK:
-
-1. Creates the Lakebase Autoscaling project (`zerobus-lakebase-<your-user-id>` — same name pattern as the bundle).
-2. Verifies the default `production` branch and compute endpoint are ready.
-3. Creates the storefront app (`storefront-<your-user-id>`) **with the Lakebase project pre-attached as a database resource**, so the platform auto-injects `PGHOST` / `PGUSER` / `PGPORT` / `PGDATABASE` env vars on the next source deploy.
-
-The **only** step left for you afterwards is pointing the app at the source code and clicking **Deploy** in the workspace UI — instructions are in the notebook's final cell. Once that's done, all the regular labs (1.1 onward) work the same way as the DAB path because they discover the project and app by name.
 
 ### Step 2: Run Lab 1.1 before the Zerobus lab
 
@@ -188,9 +198,12 @@ The storefront **auto-detects schema changes** every 30 seconds. No redeployment
 
 **Database change:** A `promotions` Delta table is created in Unity Catalog and synced to Lakebase via a synced table pipeline. First synced to a `dev-promotions` branch for validation, then promoted to the `production` branch. The synced table appears as `promotions_synced_prod` (or `promotions`) in the `ecommerce` Postgres schema.
 
-**Important — SP permissions for synced tables:** After the sync completes, you must grant the app SP access to the new table. Synced tables are created by the Lakebase sync pipeline (a different internal role), so ownership of the Alembic-managed core tables does **not** cover them. Lab 2.1 handles this with:
+**Important — group-role permissions for synced tables:** After the sync completes, the project
+owner must grant the app group role access to the new table. Synced tables are created by the
+Lakebase sync pipeline, so ownership of the Alembic-managed core tables does **not** cover them.
+Lab 2.1 handles this with:
 ```sql
-GRANT ALL ON ALL TABLES IN SCHEMA ecommerce TO "<SP_CLIENT_ID>";
+GRANT ALL ON ALL TABLES IN SCHEMA ecommerce TO "lakebase-app-schema-owner";
 ```
 
 **Storefront shows (promotions go live!):**
@@ -208,7 +221,8 @@ GRANT ALL ON ALL TABLES IN SCHEMA ecommerce TO "<SP_CLIENT_ID>";
 
 **Database change:** The storefront pushes a live clickstream (product views, clicks, add-to-carts) into the `clickstream_bronze` Delta table (created in Lab 1.1) via **Zerobus**. A **Lakeflow** pipeline (authored in SQL) aggregates bronze → silver → gold into `product_demand`, which is synced back to Lakebase as `product_demand_synced_prod` in the `ecommerce` schema.
 
-**Important — SP permissions for synced tables:** same as Lab 2.1 — after the demand sync completes, re-grant the app SP `ALL ON ALL TABLES IN SCHEMA ecommerce` so the Supplier View can read it.
+**Important — group-role permissions for synced tables:** same as Lab 2.1 — after the demand
+sync completes, grant `lakebase-app-schema-owner` access so the Supplier View can read it.
 
 **Storefront shows (Supplier Demand View goes live!):**
 - **`/supplier`** — A per-product demand dashboard: views, clicks, add-to-cart, cart rate, units sold, and a restock flag — aggregated across all shoppers.
@@ -335,9 +349,9 @@ GRANT ALL ON ALL TABLES IN SCHEMA ecommerce TO "<SP_CLIENT_ID>";
 ### "Loading..." forever
 - Hit `<app-url>/api/dbtest` to check connectivity.
 - If `PGHOST` shows `NOT SET`: the app was **not bound to the Lakebase project**. Open the app's
-  Resources tab and confirm the binding to your Lakebase project (`zerobus-lakebase-<FirstName>-<LastName>`), then click **Deploy** to restart.
+  Resources tab and confirm the binding to `zerobus-lakebase-workshop-alex-feng`, then deploy.
 - If `db_connected: false` with "password authentication failed": the database resource
-  was not added, or the SP role was not auto-created. Re-bind the resource and redeploy.
+  was not added, or the app SP is not a member of `lakebase-app-schema-owner`.
 - If `db_connected: true` with `schema_error`: check the startup logs for a failed migration. If
   tables were created previously by Lab 1.1, use a fresh Lakebase project as documented by the error.
 
@@ -346,15 +360,17 @@ GRANT ALL ON ALL TABLES IN SCHEMA ecommerce TO "<SP_CLIENT_ID>";
 - Verify `alembic upgrade head` completed before uvicorn started.
 
 ### Spring Sale Deals section not appearing (after Lab 2.1)
-- Check `/api/features` — if `promotions_active` is `false`, the SP can't see the synced table.
-- Re-run `GRANT ALL ON ALL TABLES IN SCHEMA ecommerce TO "<SP_CLIENT_ID>";` as the project owner
+- Check `/api/features` — if `promotions_active` is `false`, the group role cannot see the table.
+- Re-run `GRANT ALL ON ALL TABLES IN SCHEMA ecommerce TO "lakebase-app-schema-owner";`
+  as the project owner
   (Lab 2.1 Step 5). Synced tables are created by the sync pipeline, not your user, so
   `ALTER DEFAULT PRIVILEGES` doesn't apply to them.
 - The storefront checks for both `promotions_synced_prod` and `promotions` table names.
 
 ### Supplier Demand View empty (after Lab 3.1)
 - Check `/api/features` — if `demand_active` is `false`, the `product_demand` sync hasn't landed
-  or the SP can't see it. Re-run `GRANT ALL ON ALL TABLES IN SCHEMA ecommerce TO "<SP_CLIENT_ID>";`
+  or the group role cannot see it. Re-run
+  `GRANT ALL ON ALL TABLES IN SCHEMA ecommerce TO "lakebase-app-schema-owner";`
   (Lab 3.1 Step 8).
 - Confirm the Lakeflow pipeline completed and `product_demand` is populated in Unity Catalog.
 - The storefront checks for `product_demand_synced_prod`, `product_demand_synced`, and `product_demand`.

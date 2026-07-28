@@ -4,11 +4,10 @@ resources:
       name: "storefront-${workspace.current_user.id}"
       description: "DataCart Storefront — ${workspace.current_user.name.givenName} ${workspace.current_user.name.familyName}"
       source_code_path: ${workspace.file_path}
-      # Native Lakebase binding: the Apps platform auto-creates a Postgres login
-      # role for this app's service principal and grants it CONNECT/CREATE, then
-      # injects PGHOST/PGPORT/PGUSER/PGDATABASE/PGSSLMODE at runtime. This removes
-      # the "password authentication failed" dead-end — no manual SP role setup.
-      # Alembic runs as this role before app startup, so it owns the core schema.
+      # The native binding creates the app service principal's login and injects
+      # PGHOST/PGPORT/PGUSER/PGDATABASE/PGSSLMODE. Database sessions authenticate
+      # with the app's OAuth token but use the workspace group's OAuth role below,
+      # so Alembic and runtime-created objects share a stable owner.
       resources:
         - name: postgres
           postgres:
@@ -26,6 +25,8 @@ resources:
             value: ${var.endpoint_name}
           - name: DB_SCHEMA
             value: ecommerce
+          - name: LAKEBASE_PG_ROLE
+            value: lakebase-app-schema-owner
           # Clickstream producer (Lab 3.1). Off by default so the storefront runs
           # unchanged through Labs 1.1/2.1; Lab 3.1 sets ZEROBUS_ENABLED=true and the
           # bronze table target. DATABRICKS_HOST / DATABRICKS_CLIENT_ID /
@@ -36,8 +37,8 @@ resources:
             value: "${var.zerobus_endpoint}"
           - name: ZEROBUS_BRONZE_TABLE
             value: "${var.zerobus_bronze_table}"
-      # Bring the app up as part of `bundle deploy` — no separate `bundle run`.
-      # `lifecycle.started` is only supported for apps/clusters/sql_warehouses
-      # under the direct deployment engine (see bundle.engine: direct).
+      # First deploy must leave the app stopped. Add the newly created app service
+      # principal to the workspace group, then run the app so Alembic can log in
+      # as lakebase-app-schema-owner.
       lifecycle:
-        started: true
+        started: false

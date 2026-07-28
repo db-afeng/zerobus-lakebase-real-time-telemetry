@@ -3,7 +3,7 @@
 ## Local development with Docker
 
 The local stack builds the React storefront from source and serves it with
-Nginx, alongside the FastAPI backend and PostgreSQL 17 seeded workshop data.
+Nginx, alongside the FastAPI backend and PostgreSQL 17.
 
 ```bash
 make dev-local
@@ -40,7 +40,7 @@ docker compose down --volumes  # Also deletes local database data.
 ```
 
 Alembic migrations run automatically before the backend starts. A fresh
-PostgreSQL volume creates and seeds the `ecommerce` schema.
+PostgreSQL volume creates an empty `ecommerce` schema; Alembic does not load fixtures.
 
 ## Local development with Lakebase
 
@@ -51,11 +51,12 @@ Prerequisites:
 
 - Databricks CLI with `databricks postgres` support (0.287.0 or newer)
 - An authenticated Databricks CLI profile, `jq`, and Python 3
-- The bundle deployed at least once so the per-user project exists
+- The external `zerobus-lakebase-workshop-alex-feng` project exists
+- Your Databricks identity belongs to `lakebase-app-schema-owner`
 
-The checked-in `lakebase.config` defaults to the same project as
-`databricks.yml`: `zerobus-lakebase-<Databricks user id>`. Override its profile
-or project settings when needed.
+The checked-in `lakebase.config` targets `zerobus-lakebase-workshop-alex-feng`
+and authenticates each branch connection as `lakebase-app-schema-owner`.
+Override its profile or project settings when needed.
 
 Start Lakebase development:
 
@@ -65,8 +66,9 @@ make dev-lakebase
 
 This creates or reuses `dev-<sanitized git user.name>-<sanitized git branch>`,
 waits for its read-write endpoint, writes a mode-0600 `.env.lakebase`, and
-starts Compose with `compose.lakebase.yaml`. The generated credential expires
-after about one hour. Refresh it and recreate the backend with:
+starts Compose with `compose.lakebase.yaml`. Branch Alembic migrations therefore
+remain owned by the same group role as production. The generated credential
+expires after about one hour. Refresh it and recreate the backend with:
 
 ```bash
 make refresh-lakebase
@@ -74,6 +76,23 @@ make refresh-lakebase
 
 Stop either development mode with `make dev-down`. Development branches expire
 after six hours; stopping Compose does not delete one immediately.
+
+### Explicit Lakebase migration and seed commands
+
+Run Alembic against production or a named branch as the shared group owner:
+
+```bash
+python scripts/lakebase_db.py migrate --profile infomedia-lakebase
+python scripts/lakebase_db.py migrate --profile infomedia-lakebase --branch <branch-id>
+```
+
+Load the deterministic workshop fixture manually after migration:
+
+```bash
+python scripts/lakebase_db.py seed --profile infomedia-lakebase
+```
+
+The seed is idempotent by fixture ID and repairs the five table sequences.
 
 ### Optional post-checkout provisioning
 

@@ -2,9 +2,9 @@
 
 ## Overview
 
-This setup guide is for the **data-centric** workshop variant. It uses Declarative Automation Bundles
-(DABs) to deploy both the DataCart Storefront app and the Lakebase Autoscaling project before
-labs start, so workshop time isn't burned on UI clicks.
+This setup guide is for the **data-centric** workshop variant. The Lakebase Autoscaling project and
+its shared OAuth group role are created first; the Declarative Automation Bundle (DAB) then deploys
+the DataCart Storefront app against those existing resources.
 
 ## Prerequisites
 
@@ -23,26 +23,38 @@ labs start, so workshop time isn't burned on UI clicks.
 datacart-storefront/                  ← bundle root (databricks.yml)
 ├── databricks.yml                    →  bundle target + workspace path
 └── resources/
-    ├── lakebase_instance.yml         →  postgres_projects: zerobus-lakebase-<your-user-id>
-    │                                       (0.5–2 CU autoscaling, 300s scale-to-zero, PG 17)
     └── datacart_storefront.app.yml   →  Databricks App: storefront-<your-user-id>
-                                          (Lakebase `postgres` binding + env ENDPOINT_NAME, DB_SCHEMA)
+                                          (existing Lakebase binding + group-role env)
 ```
 
-The project slug and endpoint path are defined once as bundle `variables` (`project_id`,
-`endpoint_name`) in `databricks.yml` and referenced by the `postgres_projects` resource, the app's
-Lakebase binding, and the app's `ENDPOINT_NAME` env var.
+The bundle references these externally managed resources:
 
-`bundle deploy` provisions the Lakebase Autoscaling project AND uploads the app source files in
-one step. The app is bound to the project, so the platform auto-creates the app's service
-principal Postgres login role. When the app starts, Alembic connects as that role and creates,
-versions, and seeds the `ecommerce` schema before FastAPI starts.
+- Project: `projects/zerobus-lakebase-workshop-alex-feng`
+- Production endpoint: `projects/zerobus-lakebase-workshop-alex-feng/branches/production/endpoints/primary`
+- Database: `projects/zerobus-lakebase-workshop-alex-feng/branches/production/databases/databricks-postgres`
+- Workspace and Lakebase OAuth group role: `lakebase-app-schema-owner`
 
-Both the Lakebase project and the app name are auto-derived per user from
-`${workspace.current_user.id}` (e.g. `zerobus-lakebase-6530815146371371` and
-`storefront-6530815146371371`), so multiple attendees can deploy into the same workspace without
-colliding. The app's `description` field carries the deployer's full name so each attendee can
-spot their own app in the Apps list UI.
+The app name remains per-user (`storefront-${workspace.current_user.id}`). The database project is
+shared and is not deleted by `bundle destroy`.
+
+## One-time Lakebase and group setup
+
+Before deploying the app:
+
+1. Create the project and its `production` branch.
+2. Create the workspace group `lakebase-app-schema-owner` and add
+   `alex.feng@databricks.com`.
+3. In the production branch, create an OAuth Postgres role for that workspace group.
+4. Connect as the project owner and grant only the database privileges needed to create the app
+   schema:
+
+```sql
+GRANT CONNECT, CREATE ON DATABASE databricks_postgres
+TO "lakebase-app-schema-owner";
+```
+
+Creating the app service principal is necessarily a second phase: it does not exist until the
+first bundle deploy.
 
 ## Path A: Deploy from the workspace UI (no CLI required)
 
@@ -53,20 +65,22 @@ spot their own app in the Apps list UI.
 5. In the **Deployments** pane choose target **`dev`** → click **Deploy**.
 6. Confirm in the **Deploy to dev** dialog → click **Deploy** again.
 
-This creates the Lakebase project and the app shell, and uploads the source files to:
+This creates the stopped app shell and uploads the source files to:
 
 ```
 /Workspace/Users/<your-email>/.bundle/datacart-storefront-data-centric/dev/files/
 ```
 
-**Push the source onto the running app** — clicking ▶ run on the app in the Bundle resources
-pane only starts the compute; it doesn't push the source. To push and start, do one of:
+Before starting it, open Settings → Identity and access → Groups →
+`lakebase-app-schema-owner`, then add the new `storefront-<your-user-id>` app service principal.
+
+**Push the source and start the app** — do one of:
 
 - **From a local terminal (recommended)**: `cd datacart-storefront && databricks bundle run datacart_storefront --profile <your-profile>`
 - **Or in the workspace**: Compute → Apps → `storefront-<your-user-id>` → **Deploy** button → set source path to `/Workspace/Users/<your-email>/.bundle/datacart-storefront-data-centric/dev/files` → click Deploy.
 
-After source is deployed, Alembic initializes the database, then the app status moves to `RUNNING`
-and the populated storefront becomes accessible.
+After source is deployed, Alembic initializes empty tables as `lakebase-app-schema-owner`, then the
+app status moves to `RUNNING`.
 
 ## Path B: Deploy from a local terminal
 
@@ -84,21 +98,35 @@ cd datacart-storefront
 # Validate
 databricks bundle validate --profile <your-profile>
 
-# Provision Lakebase project + create app + upload source
+# Create the stopped app shell and upload source
 databricks bundle deploy --profile <your-profile>
+
+# Add the new app service principal to the lakebase-app-schema-owner workspace group.
 
 # Push source onto the app and start it
 databricks bundle run datacart_storefront --profile <your-profile>
+
+# Load the workshop fixture explicitly after Alembic succeeds
+python scripts/lakebase_db.py seed --profile <your-profile>
 ```
 
 If your default CLI profile already targets the right workspace, the `--profile` flag is optional.
 
 ## Run the Labs
 
-After deployment, the app startup migration creates the five core tables and sample data:
+After deployment, Alembic creates the five empty core tables. The explicit seed command above loads
+the sample data:
 
 1. **Lab 1.1** (`1.1 Lab - Setup Lakebase and Connect the Storefront`) — verifies the storefront, creates the Unity Catalog `clickstream_bronze` table needed by Zerobus, and grants the app service principal permission to ingest.
 2. **Remaining labs** in order: 3.1 → 4.1 → 5.1, plus the bonus labs.
+
+Branches created from production inherit its OAuth role, grants, Alembic state, and object
+ownership. Apply future Alembic revisions to a branch with:
+
+```bash
+cd datacart-storefront
+python scripts/lakebase_db.py migrate --profile <your-profile> --branch <branch-id>
+```
 
 ## Re-deploying After Edits
 
@@ -115,12 +143,12 @@ databricks bundle run datacart_storefront --profile <your-profile>    # pushes n
 databricks bundle destroy --profile <your-profile>
 ```
 
-This removes the app **and** the Lakebase Autoscaling project (the postgres_projects resource
-is destroyed natively by the bundle, no manual cleanup needed).
+This removes the app only. The externally managed Lakebase project, group role, and database data
+remain in place.
 
 ## Troubleshooting
 
-### Storefront migration reports a missing project
+### Storefront deployment reports a missing project
 
 Verify the project deployed successfully:
 
@@ -128,7 +156,8 @@ Verify the project deployed successfully:
 databricks postgres list-projects --profile <your-profile>
 ```
 
-You should see one named `projects/zerobus-lakebase-<your-user-id>`. If absent, re-run `bundle deploy`.
+You should see `projects/zerobus-lakebase-workshop-alex-feng`. If absent, create or restore the
+external project before deploying the app.
 
 ### Storefront stays on "Loading…" after deployment
 
@@ -139,9 +168,11 @@ databricks apps logs storefront-<your-user-id> --profile <your-profile>
 ```
 
 Common causes:
-- If logs show `password authentication failed`, the app's Lakebase resource binding didn't create
-  the SP's Postgres role. Confirm the `postgres` binding in
-  `resources/datacart_storefront.app.yml` deployed, then redeploy.
+- If logs show `password authentication failed`, verify the app service principal belongs to the
+  `lakebase-app-schema-owner` workspace group and that a matching production-branch OAuth role
+  exists with exact case.
+- If logs show `permission denied to create database`, grant the group `CONNECT, CREATE` on
+  `databricks_postgres`.
 - If logs report legacy tables without Alembic state, recreate the workshop Lakebase project. The
   automatic migration intentionally supports fresh deployments rather than taking ownership of
   tables created previously by a notebook user.

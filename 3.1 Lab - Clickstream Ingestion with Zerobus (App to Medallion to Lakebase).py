@@ -86,9 +86,9 @@ ZEROBUS_REGION = "us-west-2"   # <-- set to your workspace's region
 ZEROBUS_ENDPOINT = f"https://{workspace_id}.zerobus.{ZEROBUS_REGION}.cloud.databricks.com"
 
 # --- Lakebase (serving side) ---
-project_name = f"zerobus-lakebase-{w.current_user.me().id}"
+project_name = "zerobus-lakebase-workshop-alex-feng"
 db_schema = "ecommerce"
-db_user = w.current_user.me().user_name
+db_user = "lakebase-app-schema-owner"
 
 print(f"Bronze table:     {BRONZE_TABLE}")
 print(f"Zerobus endpoint: {ZEROBUS_ENDPOINT}")
@@ -429,20 +429,21 @@ display(spark.sql(f"""
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 8: Grant the Storefront SP Access to the Synced Table
+# MAGIC ## Step 8: Grant the Storefront Group Role Access to the Synced Table
 # MAGIC
 # MAGIC Just like Lab 2.1: synced tables are created by the Lakebase sync pipeline (a different role), so
-# MAGIC re-grant table access to the app's SP so the Supplier View can read `product_demand_synced_prod`.
+# MAGIC re-grant table access to `lakebase-app-schema-owner` so the Supplier View can read
+# MAGIC `product_demand_synced_prod`.
 
 # COMMAND ----------
 
 import time
 import psycopg2
 
-APP_NAME = f"storefront-{w.current_user.me().id}"
-SP_CLIENT_ID = w.apps.get(APP_NAME).service_principal_client_id
+GROUP_ROLE = "lakebase-app-schema-owner"
 
-# Connect to the production branch as the project owner.
+# Synced tables are owned by an internal pipeline role, so connect as the
+# project owner for the GRANT while targeting the app's shared group role.
 prod_branch = next(
     b for b in w.postgres.list_branches(parent=f"projects/{project_name}")
     if b.status and b.status.default
@@ -451,14 +452,17 @@ endpoints = list(w.postgres.list_endpoints(parent=prod_branch.name))
 prod_host = endpoints[0].status.hosts.host
 cred = w.postgres.generate_database_credential(endpoint=endpoints[0].name)
 conn = psycopg2.connect(host=prod_host, port=5432, dbname="databricks_postgres",
-                        user=db_user, password=cred.token, sslmode="require")
+                        user=w.current_user.me().user_name,
+                        password=cred.token, sslmode="require")
 conn.autocommit = True
 
 with conn.cursor() as cur:
-    sp = f'"{SP_CLIENT_ID}"'
-    cur.execute(f"GRANT USAGE ON SCHEMA {db_schema} TO {sp};")
-    cur.execute(f"GRANT ALL ON ALL TABLES IN SCHEMA {db_schema} TO {sp};")
-print(f"✅ Granted the storefront SP read access on {db_schema} (includes product_demand_synced_prod)")
+    quoted_group_role = f'"{GROUP_ROLE}"'
+    cur.execute(f"GRANT USAGE ON SCHEMA {db_schema} TO {quoted_group_role};")
+    cur.execute(
+        f"GRANT ALL ON ALL TABLES IN SCHEMA {db_schema} TO {quoted_group_role};"
+    )
+print(f"✅ Granted {GROUP_ROLE} read access on {db_schema} (includes product_demand_synced_prod)")
 conn.close()
 
 # COMMAND ----------

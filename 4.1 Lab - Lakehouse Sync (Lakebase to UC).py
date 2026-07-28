@@ -85,8 +85,9 @@ from databricks.sdk import WorkspaceClient
 
 w = WorkspaceClient()
 
-# Bundle-deployed Lakebase project
-project_name = f"zerobus-lakebase-{w.current_user.me().id}"
+# Externally managed Lakebase project used by the storefront bundle.
+project_name = "zerobus-lakebase-workshop-alex-feng"
+db_user = "lakebase-app-schema-owner"
 
 # Where the synced Delta tables will land
 # UC_CATALOG = "<<add your catalog>>"
@@ -133,7 +134,7 @@ print(f"✅ Schema {UC_CATALOG}.{UC_SCHEMA} ready")
 
 import psycopg2
 
-# Connect to the Lakebase production branch as the project owner.
+# Connect to the Lakebase production branch through the schema-owner group role.
 prod_branch_obj = next(
     b for b in w.postgres.list_branches(parent=f"projects/{project_name}")
     if b.status and b.status.default
@@ -146,7 +147,7 @@ owner_conn = psycopg2.connect(
     host=pg_host,
     port=5432,
     database="databricks_postgres",
-    user=w.current_user.me().user_name,
+    user=db_user,
     password=cred.token,
     sslmode="require",
 )
@@ -189,7 +190,7 @@ owner_conn.close()
 # MAGIC ### UI walkthrough
 # MAGIC
 # MAGIC 1. Open **Catalog Explorer** in the sidebar.
-# MAGIC 2. Navigate to your Lakebase project: **Lakebase Postgres** → `zerobus-lakebase-<FirstName>-<LastName>`
+# MAGIC 2. Navigate to **Lakebase Postgres** → `zerobus-lakebase-workshop-alex-feng`
 # MAGIC 3. Click the **production** branch
 # MAGIC 4. In the branch overview page, click **Lakehouse Sync** button
 # MAGIC 5. Click the start sync button on the right side of the screen

@@ -8,22 +8,23 @@ logger = logging.getLogger(__name__)
 
 DB_SCHEMA = os.environ.get("DB_SCHEMA", "ecommerce")
 password = os.environ.get("PGPASSWORD")
+group_role = os.environ.get("LAKEBASE_PG_ROLE")
 
 ENDPOINT_NAME = os.environ.get("ENDPOINT_NAME")
 w = None if password is not None else get_workspace_client()
 
 # Connection details come entirely from the environment. When the app is bound
 # to its Lakebase project as a resource (see resources/datacart_storefront.app.yml),
-# the Apps platform injects PGHOST/PGPORT/PGUSER/PGDATABASE/PGSSLMODE at runtime
-# and auto-creates the service principal's Postgres login role. ENDPOINT_NAME is
-# supplied via the app's config env (the binding does not inject it) and is used
-# to mint short-lived OAuth DB tokens — Lakebase credentials expire hourly, so
-# there is no static password to inject. Local Postgres uses PGPASSWORD instead.
+# the Apps platform injects PGHOST/PGPORT/PGUSER/PGDATABASE/PGSSLMODE at runtime.
+# The app mints a credential as its service principal but logs in as the OAuth
+# group role from LAKEBASE_PG_ROLE. Local Postgres keeps using PGUSER/PGPASSWORD.
 if password is None and not ENDPOINT_NAME:
     raise RuntimeError("ENDPOINT_NAME is required when PGPASSWORD is not set")
+if password is None and not group_role:
+    raise RuntimeError("LAKEBASE_PG_ROLE is required when PGPASSWORD is not set")
 LAKEBASE_PROJECT = ENDPOINT_NAME.split("/")[1] if ENDPOINT_NAME else None
 
-username = os.environ["PGUSER"]
+username = os.environ["PGUSER"] if password is not None else group_role
 host = os.environ["PGHOST"]
 port = os.environ.get("PGPORT", "5432")
 database = os.environ.get("PGDATABASE", "databricks_postgres")

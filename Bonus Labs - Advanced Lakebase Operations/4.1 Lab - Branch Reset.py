@@ -54,10 +54,9 @@ import psycopg2
 
 w = WorkspaceClient()
 
-# Bundle-deployed Lakebase project (datacart-storefront/databricks.yml)
-# Project name is auto-derived per user from ${workspace.current_user.id}
-project_name = f"zerobus-lakebase-{w.current_user.me().id}"
-db_user = w.current_user.me().user_name
+# Externally managed Lakebase project; branch DDL runs as its OAuth group owner.
+project_name = "zerobus-lakebase-workshop-alex-feng"
+db_user = "lakebase-app-schema-owner"
 
 # List branches — the default 'production' branch should exist
 branches = list(w.postgres.list_branches(parent=f"projects/{project_name}"))

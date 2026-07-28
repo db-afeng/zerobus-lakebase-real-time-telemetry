@@ -70,6 +70,7 @@ def dbtest():
     info = {
         "PGHOST": os.environ.get("PGHOST", "NOT SET"),
         "PGUSER": os.environ.get("PGUSER", "NOT SET"),
+        "LAKEBASE_PG_ROLE": os.environ.get("LAKEBASE_PG_ROLE", "NOT SET"),
         "PGDATABASE": os.environ.get("PGDATABASE", "NOT SET"),
         "ENDPOINT_NAME": os.environ.get("ENDPOINT_NAME", "NOT SET"),
         "IS_APP": bool(os.environ.get("DATABRICKS_APP_NAME")),

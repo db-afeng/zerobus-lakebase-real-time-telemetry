@@ -3,9 +3,9 @@
 # MAGIC # Lab 1.1: Verify the Storefront and Prepare Zerobus
 # MAGIC
 # MAGIC The DataCart Storefront now applies its Lakebase schema automatically when the app starts.
-# MAGIC Alembic creates and versions the `ecommerce` schema, its five core tables, and the workshop's
-# MAGIC sample data before FastAPI begins serving traffic. No manual PostgreSQL setup or grants are
-# MAGIC required.
+# MAGIC Alembic creates and versions the `ecommerce` schema and its five core tables before FastAPI
+# MAGIC begins serving traffic. Workshop sample data is loaded separately with the manual seed
+# MAGIC command in `WORKSHOP_SETUP.md`.
 # MAGIC
 # MAGIC This lab verifies that the deployed app is available, then prepares the Unity Catalog
 # MAGIC `clickstream_bronze` Delta table used by Lab 3.1. Unity Catalog objects remain outside
@@ -16,8 +16,9 @@
 # MAGIC 2. Create the clickstream bronze Delta table in Unity Catalog
 # MAGIC 3. Grant the storefront service principal permission to ingest through Zerobus
 # MAGIC
-# MAGIC > **Setup expectation:** The Lakebase Autoscaling project and DataCart Storefront app are
-# MAGIC > deployed by the bundle before this lab. See `WORKSHOP_SETUP.md` if they are missing.
+# MAGIC > **Setup expectation:** The externally managed Lakebase Autoscaling project exists, the app
+# MAGIC > is deployed, its service principal belongs to `lakebase-app-schema-owner`, and the manual
+# MAGIC > seed command has completed. See `WORKSHOP_SETUP.md`.
 
 # COMMAND ----------
 
@@ -25,7 +26,7 @@
 # MAGIC ## Architecture
 # MAGIC
 # MAGIC ```
-# MAGIC Lakebase Autoscaling (created by bundle)
+# MAGIC Lakebase Autoscaling (created before bundle deployment)
 # MAGIC └── production
 # MAGIC     └── ecommerce (created and versioned by app startup / Alembic)
 # MAGIC         ├── customers
@@ -44,8 +45,9 @@
 # MAGIC ## Step 1: Verify the Storefront Deployment
 # MAGIC
 # MAGIC The app resource binding creates a PostgreSQL login for the app service principal and injects
-# MAGIC the Lakebase connection settings. At startup, the app runs `alembic upgrade head` using that
-# MAGIC identity, so the migrated tables are owned by the identity that reads and writes them.
+# MAGIC the Lakebase connection settings. Its OAuth token authenticates the connection, while the
+# MAGIC PostgreSQL username is the `lakebase-app-schema-owner` group role. Startup Alembic and the
+# MAGIC running app therefore use the same stable database owner.
 
 # COMMAND ----------
 
