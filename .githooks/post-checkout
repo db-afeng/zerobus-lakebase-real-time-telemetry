@@ -7,10 +7,26 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 BRANCH_MANAGER="$REPO_ROOT/datacart-storefront/scripts/lakebase-branch.sh"
 [[ -x "$BRANCH_MANAGER" ]] || exit 0
 
-echo "post-checkout: preparing this branch's Lakebase development database"
-if ! "$BRANCH_MANAGER"; then
-    echo "post-checkout: Lakebase provisioning failed; run 'make dev-lakebase' from datacart-storefront to retry." >&2
-fi
+LOG_FILE="$REPO_ROOT/datacart-storefront/lakebase-branch-post-commit.log"
+CHECKOUT_ID="$(git symbolic-ref -q HEAD || printf 'detached')@$(git rev-parse HEAD)"
+
+printf 'post-checkout: %s running\n' "$CHECKOUT_ID" >"$LOG_FILE"
+nohup bash -c '
+    branch_manager="$1"
+    log_file="$2"
+    checkout_id="$3"
+
+    if "$branch_manager" --expected-checkout-id "$checkout_id" >>"$log_file" 2>&1; then
+        printf "post-checkout: %s succeeded\n" "$checkout_id" >>"$log_file"
+    else
+        status=$?
+        printf "post-checkout: %s failed\n" "$checkout_id" >>"$log_file"
+        printf "post-checkout: exit status %s\n" "$status" >>"$log_file"
+    fi
+' post-checkout-runner "$BRANCH_MANAGER" "$LOG_FILE" "$CHECKOUT_ID" \
+    </dev/null >/dev/null 2>&1 &
+
+echo "post-checkout: preparing this branch's Lakebase database asynchronously; log: $LOG_FILE"
 
 # Post-checkout automation must never turn a successful checkout into a failure.
 exit 0

@@ -13,7 +13,12 @@ dev-local: ## Start the app with its local PostgreSQL container
 	docker compose up --build
 
 dev-lakebase: ## Start the app with this Git branch's Lakebase branch
-	@./scripts/lakebase-branch.sh
+	@status=0; ./scripts/lakebase-branch.sh --wait-for-hook || status=$$?; \
+		if [[ $$status -eq 2 ]]; then \
+			./scripts/lakebase-branch.sh; \
+		elif [[ $$status -ne 0 ]]; then \
+			exit $$status; \
+		fi
 	$(LAKEBASE_COMPOSE) up --build
 
 refresh-lakebase: ## Refresh the hourly credential and recreate the backend

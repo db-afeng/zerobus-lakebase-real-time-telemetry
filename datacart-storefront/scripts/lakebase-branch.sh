@@ -7,13 +7,25 @@ APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(git -C "$APP_ROOT" rev-parse --show-toplevel)"
 CONFIG_FILE="$APP_ROOT/lakebase.config"
 ENV_FILE="$APP_ROOT/.env.lakebase"
+HOOK_LOG_FILE="$APP_ROOT/lakebase-branch-post-commit.log"
 REFRESH_ONLY=false
 SELF_TEST=false
+WAIT_FOR_HOOK=false
+EXPECTED_CHECKOUT_ID=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --refresh-only) REFRESH_ONLY=true ;;
         --self-test) SELF_TEST=true ;;
+        --wait-for-hook) WAIT_FOR_HOOK=true ;;
+        --expected-checkout-id)
+            [[ $# -ge 2 ]] || {
+                echo "--expected-checkout-id requires a value" >&2
+                exit 2
+            }
+            EXPECTED_CHECKOUT_ID="$2"
+            shift
+            ;;
         *)
             echo "Unknown option: $1" >&2
             exit 2
@@ -69,6 +81,73 @@ endpoint_is_connectable() {
     [[ -n "$host" && "$state" =~ ^(ACTIVE|IDLE|SUSPENDED)$ ]]
 }
 
+current_checkout_id() {
+    printf '%s@%s\n' \
+        "$(git -C "$REPO_ROOT" symbolic-ref -q HEAD || printf 'detached')" \
+        "$(git -C "$REPO_ROOT" rev-parse HEAD)"
+}
+
+assert_expected_checkout() {
+    local actual_checkout_id
+    [[ -n "$EXPECTED_CHECKOUT_ID" ]] || return 0
+
+    actual_checkout_id="$(current_checkout_id)"
+    [[ "$actual_checkout_id" == "$EXPECTED_CHECKOUT_ID" ]] || {
+        echo "Checkout changed from $EXPECTED_CHECKOUT_ID to $actual_checkout_id; skipping stale provisioning." >&2
+        return 1
+    }
+}
+
+hook_state() {
+    local checkout_id="$1"
+    local log_file="$2"
+
+    if [[ ! -f "$log_file" ]]; then
+        echo "missing"
+    elif grep -Fqx "post-checkout: $checkout_id succeeded" "$log_file"; then
+        echo "succeeded"
+    elif grep -Fqx "post-checkout: $checkout_id failed" "$log_file"; then
+        echo "failed"
+    elif grep -Fqx "post-checkout: $checkout_id running" "$log_file"; then
+        echo "running"
+    else
+        echo "missing"
+    fi
+}
+
+wait_for_hook() {
+    local checkout_id state attempt
+    checkout_id="$(current_checkout_id)"
+    state="$(hook_state "$checkout_id" "$HOOK_LOG_FILE")"
+
+    if [[ "$state" == "missing" ]]; then
+        return 2
+    fi
+
+    echo "Waiting for post-checkout Lakebase provisioning ($checkout_id)"
+    for attempt in {1..600}; do
+        state="$(hook_state "$checkout_id" "$HOOK_LOG_FILE")"
+        case "$state" in
+            succeeded)
+                echo "Post-checkout Lakebase provisioning succeeded."
+                return 0
+                ;;
+            failed)
+                echo "Post-checkout Lakebase provisioning failed; retrying synchronously." >&2
+                return 2
+                ;;
+            missing)
+                echo "Post-checkout log was replaced; retrying synchronously." >&2
+                return 2
+                ;;
+        esac
+        sleep 1
+    done
+
+    echo "Timed out waiting for post-checkout Lakebase provisioning; see $HOOK_LOG_FILE" >&2
+    return 1
+}
+
 run_self_test() {
     local actual long_name
 
@@ -97,6 +176,18 @@ run_self_test() {
         return 1
     fi
 
+    (
+        local test_log test_checkout_id
+        test_log="$(mktemp)"
+        trap 'rm -f "$test_log"' EXIT
+        test_checkout_id="refs/heads/test@abc123"
+        printf 'post-checkout: %s running\n' "$test_checkout_id" >"$test_log"
+        [[ "$(hook_state "$test_checkout_id" "$test_log")" == "running" ]]
+        printf 'post-checkout: %s succeeded\n' "$test_checkout_id" >>"$test_log"
+        [[ "$(hook_state "$test_checkout_id" "$test_log")" == "succeeded" ]]
+        [[ "$(hook_state "refs/heads/other@abc123" "$test_log")" == "missing" ]]
+    ) || return 1
+
     echo "Lakebase branch-name checks passed."
 }
 
@@ -104,6 +195,16 @@ if [[ "$SELF_TEST" == "true" ]]; then
     run_self_test
     exit
 fi
+
+if [[ "$WAIT_FOR_HOOK" == "true" ]]; then
+    if wait_for_hook; then
+        exit 0
+    else
+        exit $?
+    fi
+fi
+
+assert_expected_checkout
 
 [[ -f "$CONFIG_FILE" ]] || {
     echo "Missing $CONFIG_FILE" >&2
@@ -263,4 +364,5 @@ write_env_file() {
 
 ensure_branch
 ensure_endpoint
+assert_expected_checkout
 write_env_file

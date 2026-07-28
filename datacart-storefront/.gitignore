@@ -5,6 +5,7 @@ __pycache__/
 venv/
 .env
 .env.lakebase
+lakebase-branch-post-commit.log
 
 # Node
 node_modules/

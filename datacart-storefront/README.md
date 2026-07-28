@@ -105,16 +105,17 @@ make hooks-install
 The installer does not edit the managed global hook or change
 `core.hooksPath`. It creates the separate user hook already supported by the
 global Databricks hook and allowlists this clone's exact absolute path. Other
-repositories are ignored. Branch checkouts provision Lakebase synchronously;
-file checkouts are ignored, and provisioning errors are warnings rather than
-checkout failures.
+repositories are ignored. Branch checkouts provision Lakebase asynchronously;
+file checkouts are ignored, and provisioning errors do not fail the checkout.
+Each run replaces `lakebase-branch-post-commit.log` with its output.
 
 The managed global hook exits before user-hook dispatch when
 `DBR_SKIP_COMPILE_COMMANDS=1`, so that opt-out also skips Lakebase provisioning.
 
 The hook prepares `.env.lakebase` but does not restart running containers.
-Run `make dev-lakebase` to apply a newly generated environment. Disable the
-registration with:
+`make dev-lakebase` waits for the matching checkout run to succeed before
+starting containers, or retries provisioning synchronously if the hook did not
+run or failed. Disable the registration with:
 
 ```bash
 make hooks-uninstall
