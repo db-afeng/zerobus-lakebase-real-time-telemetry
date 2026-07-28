@@ -26,7 +26,5 @@ nohup bash -c '
 ' post-checkout-runner "$BRANCH_MANAGER" "$LOG_FILE" "$CHECKOUT_ID" \
     </dev/null >/dev/null 2>&1 &
 
-echo "post-checkout: preparing this branch's Lakebase database asynchronously; log: $LOG_FILE"
-
 # Post-checkout automation must never turn a successful checkout into a failure.
 exit 0
