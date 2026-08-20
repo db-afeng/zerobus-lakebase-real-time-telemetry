@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 WORKTREE_ROOT := $(shell git rev-parse --show-toplevel)
-COMPOSE_PROJECT_NAME := $(shell WORKTREE_ROOT="$(WORKTREE_ROOT)" python3 -c 'import hashlib, os, re; root = os.environ["WORKTREE_ROOT"]; slug = re.sub(r"[^a-z0-9_-]+", "-", os.path.basename(root).lower()).strip("-_")[:32] or "worktree"; print(f"datacart-{slug}-{hashlib.sha256(root.encode()).hexdigest()[:8]}")')
+COMPOSE_PROJECT_NAME := $(shell WORKTREE_ROOT="$(WORKTREE_ROOT)" python3 -c 'import hashlib, os; root = os.environ["WORKTREE_ROOT"]; print(f"datacart-{hashlib.sha256(root.encode()).hexdigest()[:8]}")')
 export COMPOSE_PROJECT_NAME
 
 COMPOSE := docker compose -p $(COMPOSE_PROJECT_NAME)
