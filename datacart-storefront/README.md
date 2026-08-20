@@ -10,15 +10,17 @@ make dev-local
 ```
 
 Always use the Make targets rather than raw `docker compose` commands. Each
-linked Git worktree gets a Compose project derived from its canonical checkout
-path, which isolates its containers, network, images, and `postgres-data`
-volume from other local worktrees.
+development context gets one eight-character ID shared by its Compose project
+and Lakebase branch. Cursor worktrees reuse the ID embedded in an exact
+`cursor/<id>` Git branch; other branches derive it from the raw Git user and
+branch names. This isolates containers, networks, images, and `postgres-data`
+volumes between feature branches.
 
 The Compose build uses the Databricks PyPI and npm proxies by default. Override
 `PIP_INDEX_URL` or `NPM_REGISTRY` when different package indexes are required.
 
-Docker assigns each worktree a free loopback port for the storefront. From a
-second terminal, print its URL with:
+Docker assigns each development context a free loopback port for the
+storefront. From a second terminal, print its URL with:
 
 ```bash
 make url
@@ -42,11 +44,13 @@ Useful commands:
 make compose ARGS='logs -f backend'
 make compose ARGS='exec postgres psql -U datacart -d datacart'
 make dev-down
-make dev-destroy  # Also deletes only this worktree's local database data.
+make dev-destroy  # Also deletes only this branch context's local database data.
 ```
 
 Alembic migrations run automatically before the backend starts. A fresh
 PostgreSQL volume creates an empty `ecommerce` schema; Alembic does not load fixtures.
+Run `make dev-down` before switching branches in the same checkout so the old
+branch context does not keep running.
 
 ## Local development with Lakebase
 
@@ -70,14 +74,15 @@ Start Lakebase development:
 make dev-lakebase
 ```
 
-This creates or reuses
-`dev-<sanitized git user.name>-<sanitized git branch>-<hash>`, waits for its
+This creates or reuses a branch named
+`dev-<sanitized git user.name>-<sanitized git branch>-<context-id>`, omitting a
+duplicate suffix when a Cursor branch already ends in that ID. It waits for the
 read-write endpoint, writes a mode-0600 worktree-local `.env.lakebase`, and
-starts Compose with `compose.lakebase.yaml`. The hash preserves distinctions
-between Git refs that sanitize to the same text. Branch Alembic migrations
-therefore remain owned by the same group role as production. The generated
-credential expires after about one hour. Refresh it and recreate only this
-worktree's backend with:
+starts Compose with `compose.lakebase.yaml`. For non-Cursor branches, the
+derived ID preserves distinctions between Git refs that sanitize to the same
+text. Branch Alembic migrations therefore remain owned by the same group role
+as production. The generated credential expires after about one hour. Refresh
+it and recreate only this development context's backend with:
 
 ```bash
 make refresh-lakebase

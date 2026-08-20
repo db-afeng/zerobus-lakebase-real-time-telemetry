@@ -9,8 +9,12 @@ Use the repository's Lakebase branch workflow for all database-dependent feature
 
 ## Mental model
 
-- A Git branch checkout creates or reuses a Lakebase branch named
-  `dev-<git-user>-<git-branch>-<hash>`.
+- A Git branch checkout gets one eight-character development context ID. An
+  exact `cursor/<id>` branch reuses Cursor's ID; other branches derive it from
+  the raw Git user and branch names.
+- The same ID names the Compose project and Lakebase branch. Lakebase uses
+  `dev-<git-user>-<git-branch>-<id>`, without repeating an ID already present
+  at the end of a Cursor branch.
 - The Lakebase branch is an instant copy-on-write snapshot of `production`. It
   contains production data as of branch creation, while schema and data writes
   remain isolated from `production`.
@@ -19,9 +23,9 @@ Use the repository's Lakebase branch workflow for all database-dependent feature
 - The branch is disposable and expires after six hours by default.
 - Isolation covers Lakebase only. Do not trigger writes to shared external
   systems. Local Compose disables Zerobus with `ZEROBUS_ENABLED=false`.
-- Each linked worktree has a path-derived Compose project and a dynamically
-  published frontend port. Always use the Make targets so containers, networks,
-  images, and local PostgreSQL volumes remain worktree-scoped.
+- Each branch context has its own Compose project and dynamically published
+  frontend port. Always use the Make targets so containers, networks, images,
+  and local PostgreSQL volumes remain branch-scoped.
 
 ## Safety rules
 
@@ -38,7 +42,9 @@ Use the repository's Lakebase branch workflow for all database-dependent feature
 
 Work from `datacart-storefront/`.
 
-1. Check out or create the Git feature branch. Do not work from detached HEAD.
+1. Stop the current stack before switching branches in an existing checkout,
+   then check out or create the Git feature branch. Do not work from detached
+   HEAD.
 2. Let the post-checkout hook provision Lakebase asynchronously.
 3. Use `make dev-lakebase` as the authoritative readiness barrier. It waits for
    the matching hook run, retries provisioning when needed, refreshes

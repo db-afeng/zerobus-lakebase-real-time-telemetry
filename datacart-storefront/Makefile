@@ -1,7 +1,10 @@
 SHELL := /bin/bash
 
-WORKTREE_ROOT := $(shell git rev-parse --show-toplevel)
-COMPOSE_PROJECT_NAME := $(shell WORKTREE_ROOT="$(WORKTREE_ROOT)" python3 -c 'import hashlib, os; root = os.environ["WORKTREE_ROOT"]; print(f"datacart-{hashlib.sha256(root.encode()).hexdigest()[:8]}")')
+DEV_CONTEXT_ID := $(shell bash ./scripts/dev-context-id.sh)
+ifeq ($(strip $(DEV_CONTEXT_ID)),)
+$(error Unable to determine development context ID)
+endif
+COMPOSE_PROJECT_NAME := datacart-$(DEV_CONTEXT_ID)
 export COMPOSE_PROJECT_NAME
 
 COMPOSE := docker compose -p $(COMPOSE_PROJECT_NAME)
@@ -54,6 +57,7 @@ hooks-uninstall: ## Remove this clone's post-checkout registration
 	@./scripts/manage-post-checkout-hook.sh uninstall
 
 check: ## Validate branch naming and both Compose modes
+	@bash ./scripts/dev-context-id.sh --self-test
 	@./scripts/lakebase-branch.sh --self-test
 	@python3 -c 'from server.runtime import get_runtime_info; local = get_runtime_info({"APP_RUNTIME": "docker"}); assert local == {"backend": "docker", "database": {"location": "local-docker", "project": None, "branch": None}}; lakebase = get_runtime_info({"DATABRICKS_APP_NAME": "storefront", "ENDPOINT_NAME": "projects/demo-project/branches/dev-alex/endpoints/primary"}); assert lakebase == {"backend": "production", "database": {"location": "lakebase", "project": "demo-project", "branch": "dev-alex"}}'
 	@$(COMPOSE) config --format json | jq -e --arg name "$(COMPOSE_PROJECT_NAME)" \
