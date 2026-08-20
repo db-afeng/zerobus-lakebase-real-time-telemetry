@@ -61,13 +61,8 @@ build_lakebase_branch_name() {
     }
 
     raw="dev-${git_user}-${git_branch}"
-    if [[ ${#raw} -le 63 ]]; then
-        printf '%s\n' "$raw"
-        return
-    fi
-
     digest="$(
-        printf '%s' "$raw" |
+        printf '%s\0%s' "$1" "$2" |
             python3 -c 'import hashlib, sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest()[:8])'
     )"
     prefix="${raw:0:54}"
@@ -85,6 +80,17 @@ current_checkout_id() {
     printf '%s@%s\n' \
         "$(git -C "$REPO_ROOT" symbolic-ref -q HEAD || printf 'detached')" \
         "$(git -C "$REPO_ROOT" rev-parse HEAD)"
+}
+
+env_matches_current_branch() {
+    local expected_branch
+    [[ -f "$ENV_FILE" ]] || return 1
+    expected_branch="$(
+        build_lakebase_branch_name \
+            "$(git -C "$REPO_ROOT" config user.name || true)" \
+            "$(git -C "$REPO_ROOT" branch --show-current)"
+    )" || return 1
+    grep -Fqx "DB_SOURCE=lakebase/$expected_branch" "$ENV_FILE"
 }
 
 assert_expected_checkout() {
@@ -129,8 +135,12 @@ wait_for_hook() {
         state="$(hook_state "$checkout_id" "$HOOK_LOG_FILE")"
         case "$state" in
             succeeded)
-                echo "Post-checkout Lakebase provisioning succeeded."
-                return 0
+                if env_matches_current_branch; then
+                    echo "Post-checkout Lakebase provisioning succeeded."
+                    return 0
+                fi
+                echo "Post-checkout output does not match this branch; retrying synchronously." >&2
+                return 2
                 ;;
             failed)
                 echo "Post-checkout Lakebase provisioning failed; retrying synchronously." >&2
@@ -149,11 +159,18 @@ wait_for_hook() {
 }
 
 run_self_test() {
-    local actual long_name
+    local actual collision_a collision_b long_name
 
     actual="$(build_lakebase_branch_name "Alex Feng" "feat/Lakebase Branch")"
-    [[ "$actual" == "dev-alexfeng-feat-lakebase-branch" ]] || {
-        echo "Expected sanitized branch name, got: $actual" >&2
+    [[ "$actual" =~ ^dev-alexfeng-feat-lakebase-branch-[0-9a-f]{8}$ ]] || {
+        echo "Expected a sanitized, hashed branch name, got: $actual" >&2
+        return 1
+    }
+
+    collision_a="$(build_lakebase_branch_name "Alex Feng" "feat/a_b")"
+    collision_b="$(build_lakebase_branch_name "Alex Feng" "feat/a-b")"
+    [[ "$collision_a" != "$collision_b" ]] || {
+        echo "Expected distinct raw branch names to remain distinct after sanitizing" >&2
         return 1
     }
 

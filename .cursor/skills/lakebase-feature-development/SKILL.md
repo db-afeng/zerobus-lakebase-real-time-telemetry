@@ -10,7 +10,7 @@ Use the repository's Lakebase branch workflow for all database-dependent feature
 ## Mental model
 
 - A Git branch checkout creates or reuses a Lakebase branch named
-  `dev-<git-user>-<git-branch>`.
+  `dev-<git-user>-<git-branch>-<hash>`.
 - The Lakebase branch is an instant copy-on-write snapshot of `production`. It
   contains production data as of branch creation, while schema and data writes
   remain isolated from `production`.
@@ -19,6 +19,9 @@ Use the repository's Lakebase branch workflow for all database-dependent feature
 - The branch is disposable and expires after six hours by default.
 - Isolation covers Lakebase only. Do not trigger writes to shared external
   systems. Local Compose disables Zerobus with `ZEROBUS_ENABLED=false`.
+- Each linked worktree has a path-derived Compose project and a dynamically
+  published frontend port. Always use the Make targets so containers, networks,
+  images, and local PostgreSQL volumes remain worktree-scoped.
 
 ## Safety rules
 
@@ -43,8 +46,8 @@ Work from `datacart-storefront/`.
    before FastAPI starts.
 4. If the credential expires, run `make refresh-lakebase`.
 5. Make the smallest application and migration changes needed.
-6. Run `make check`, then test the changed behavior end to end against
-   `http://localhost:3000`.
+6. Run `make check`, then run `make url` in another terminal and test the
+   changed behavior end to end against the returned worktree URL.
 7. Keep the stack running when finished. Run `make dev-down` only when the user
    explicitly asks to stop the stack.
 
@@ -83,7 +86,7 @@ migration. Verify all applicable layers:
 - The backend starts after Alembic completes.
 - `/api/health` and `/api/dbtest` succeed.
 - Changed API endpoints work with production-shaped data.
-- The affected browser journey works at `http://localhost:3000`.
+- The affected browser journey works at the URL returned by `make url`.
 - Database writes are visible through a subsequent application read.
 - Existing production-derived rows remain valid after migrations.
 - `alembic downgrade -1` and the subsequent `alembic upgrade head` both work.

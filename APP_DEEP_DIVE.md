@@ -440,18 +440,25 @@ All cart operations and order history are scoped to this customer. The cart is s
 
 ## Local Development
 
-### Start the backend
+Use the worktree-aware Compose workflow so parallel Cursor agents do not share
+containers, host ports, networks, or local database volumes.
+
+### Start the full stack
 ```bash
 cd datacart-storefront
-export DATABRICKS_PROFILE=fe-vm-ben
-uv run uvicorn app:app --reload --port 8000
+make dev-lakebase  # Production-shaped Lakebase snapshot
+# Or: make dev-local
 ```
 
-### Start the frontend (with API proxy)
+### Open this worktree
 ```bash
-cd frontend
-npm run dev  # Runs on port 5173, proxies /api to localhost:8000
+make url
 ```
+
+Docker assigns the Nginx frontend a free loopback port. Use the returned origin
+for the storefront, `/supplier`, and `/api/*`; FastAPI and PostgreSQL stay on
+the worktree's private Compose network. Native fixed-port Uvicorn/Vite commands
+are not the supported parallel-worktree workflow.
 
 ### Build for deployment
 ```bash

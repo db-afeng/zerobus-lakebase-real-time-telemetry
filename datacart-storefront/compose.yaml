@@ -1,3 +1,5 @@
+name: ${COMPOSE_PROJECT_NAME:?Run through make}
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -5,8 +7,6 @@ services:
       POSTGRES_DB: datacart
       POSTGRES_USER: datacart
       POSTGRES_PASSWORD: datacart
-    ports:
-      - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -35,8 +35,6 @@ services:
       DB_SCHEMA: ecommerce
       APP_RUNTIME: docker
       ZEROBUS_ENABLED: "false"
-    ports:
-      - "8000:8000"
     volumes:
       - .:/app
     depends_on:
@@ -59,7 +57,10 @@ services:
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://npm-proxy.cloud.databricks.com/}
     ports:
-      - "3000:80"
+      - target: 80
+        published: "0"
+        host_ip: 127.0.0.1
+        protocol: tcp
     depends_on:
       backend:
         condition: service_healthy

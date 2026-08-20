@@ -1,8 +1,13 @@
 SHELL := /bin/bash
 
-LAKEBASE_COMPOSE := docker compose -f compose.yaml -f compose.lakebase.yaml --env-file .env.lakebase
+WORKTREE_ROOT := $(shell git rev-parse --show-toplevel)
+COMPOSE_PROJECT_NAME := $(shell WORKTREE_ROOT="$(WORKTREE_ROOT)" python3 -c 'import hashlib, os, re; root = os.environ["WORKTREE_ROOT"]; slug = re.sub(r"[^a-z0-9_-]+", "-", os.path.basename(root).lower()).strip("-_")[:32] or "worktree"; print(f"datacart-{slug}-{hashlib.sha256(root.encode()).hexdigest()[:8]}")')
+export COMPOSE_PROJECT_NAME
 
-.PHONY: help dev-local dev-lakebase refresh-lakebase dev-down dev-destroy hooks-install hooks-uninstall check
+COMPOSE := docker compose -p $(COMPOSE_PROJECT_NAME)
+LAKEBASE_COMPOSE := $(COMPOSE) -f compose.yaml -f compose.lakebase.yaml --env-file .env.lakebase
+
+.PHONY: help dev-local dev-lakebase refresh-lakebase url compose dev-down dev-destroy hooks-install hooks-uninstall check
 
 .DEFAULT_GOAL := help
 
@@ -10,7 +15,7 @@ help: ## Show available commands
 	@awk -F ':.*## ' '/^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 dev-local: ## Start the app with its local PostgreSQL container
-	docker compose up --build
+	$(COMPOSE) up --build
 
 dev-lakebase: ## Start the app with this Git branch's Lakebase branch
 	@status=0; ./scripts/lakebase-branch.sh --wait-for-hook || status=$$?; \
@@ -25,11 +30,22 @@ refresh-lakebase: ## Refresh the hourly credential and recreate the backend
 	@./scripts/lakebase-branch.sh --refresh-only
 	$(LAKEBASE_COMPOSE) up -d --force-recreate backend
 
+url: ## Print this worktree's storefront URL
+	@address="$$($(COMPOSE) port frontend 80 2>/dev/null)" && [[ -n "$$address" ]] || { \
+		echo "Frontend is not running; start it with make dev-local or make dev-lakebase." >&2; \
+		exit 1; \
+	}; \
+	printf 'http://%s\n' "$$address"
+
+compose: ## Run a scoped Compose command with ARGS='...'
+	$(if $(strip $(ARGS)),,$(error Usage: make compose ARGS='logs -f backend'))
+	$(COMPOSE) $(ARGS)
+
 dev-down: ## Stop local or Lakebase development containers
-	docker compose down
+	$(COMPOSE) down
 
 dev-destroy: ## Stop local or Lakebase development containers
-	docker compose down --volumes
+	$(COMPOSE) down --volumes
 
 hooks-install: ## Enable Lakebase provisioning after branch checkouts
 	@./scripts/manage-post-checkout-hook.sh install
@@ -40,8 +56,9 @@ hooks-uninstall: ## Remove this clone's post-checkout registration
 check: ## Validate branch naming and both Compose modes
 	@./scripts/lakebase-branch.sh --self-test
 	@python3 -c 'from server.runtime import get_runtime_info; local = get_runtime_info({"APP_RUNTIME": "docker"}); assert local == {"backend": "docker", "database": {"location": "local-docker", "project": None, "branch": None}}; lakebase = get_runtime_info({"DATABRICKS_APP_NAME": "storefront", "ENDPOINT_NAME": "projects/demo-project/branches/dev-alex/endpoints/primary"}); assert lakebase == {"backend": "production", "database": {"location": "lakebase", "project": "demo-project", "branch": "dev-alex"}}'
-	@docker compose config --quiet
+	@$(COMPOSE) config --format json | jq -e --arg name "$(COMPOSE_PROJECT_NAME)" \
+		'.name == $$name and (.services.postgres.ports == null) and (.services.backend.ports == null) and (.services.frontend.ports == [{host_ip: "127.0.0.1", mode: "ingress", protocol: "tcp", published: "0", target: 80}])' >/dev/null
 	@PGHOST=lakebase.example PGUSER=developer@example.com PGPASSWORD=test \
 		ENDPOINT_NAME=projects/test/branches/test/endpoints/primary \
-		docker compose -f compose.yaml -f compose.lakebase.yaml config --format json | \
+		$(COMPOSE) -f compose.yaml -f compose.lakebase.yaml config --format json | \
 		jq -e '.services.postgres == null and .services.backend.depends_on.postgres.required == false and .services.backend.environment.PGHOST == "lakebase.example"' >/dev/null
